@@ -17,18 +17,19 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use rand::{prelude::Distribution, rngs::ThreadRng, seq::SliceRandom, Rng, SeedableRng};
+use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use zipf::ZipfDistribution;
 
-#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+#[repr(u8)]
 pub enum Device {
     // 6 dimms
-    OptanePMem,
-    OptaneSSD,
-    SamsungZSSD,
-    MicronTLCSSD,
-    GenericHDD,
-    DRAM,
+    OptanePMem = 0,
+    OptaneSSD = 1,
+    SamsungZSSD = 2,
+    MicronTLCSSD = 3,
+    GenericHDD = 4,
+    DRAM = 5,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
@@ -41,7 +42,7 @@ pub enum Access {
 }
 
 impl Access {
-    pub fn generate<R>(rw: f64, dist: ZipfDistribution, rng: &mut R) -> Self
+    pub fn generate<R>(rw: f64, dist: &mut ZipfDistribution, rng: &mut R) -> Self
     where
         R: Rng,
     {
@@ -74,6 +75,26 @@ impl Access {
             Access::Read(ref block) => block,
             Access::Write(ref block) => block,
         }
+    }
+}
+
+pub struct RandomAccessSequence<'a, R> {
+    rng: &'a mut R,
+    dist: &'a mut ZipfDistribution,
+    rw: f64,
+}
+
+impl<'a, R: Rng> RandomAccessSequence<'a, R> {
+    pub fn new(rng: &'a mut R, dist: &'a mut ZipfDistribution, rw: f64) -> Self {
+        Self { rng, dist, rw }
+    }
+}
+
+impl<'a, R: Rng> Iterator for RandomAccessSequence<'a, R> {
+    type Item = Access;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(Access::generate(self.rw, self.dist, self.rng))
     }
 }
 
@@ -222,9 +243,8 @@ pub struct PolicySimulator<S, P> {
     // Ordered Map, system time is priority.
     events: BTreeMap<SystemTime, Event>,
     dist: ZipfDistribution,
-    rng: ThreadRng,
+    rng: StdRng,
     total_blocks: usize,
-    seed: u64,
     rw: f64,
     iteration: usize,
 }
@@ -236,13 +256,8 @@ const BATCH_SIZE: usize = 128;
 impl<S, P> PolicySimulator<S, P> {
     fn step(&mut self) {
         // generate a series of 100 requests
-        let reqs = Access::generate_iter(
-            self.rw,
-            self.dist.clone(),
-            self.rng.clone(),
-            self.rng.clone(),
-        )
-        .take(BATCH_SIZE);
+        let reqs =
+            RandomAccessSequence::new(&mut self.rng, &mut self.dist, self.rw).take(BATCH_SIZE);
 
         for req in reqs {
             let (then, ev) = self.stack.submit(self.now, req);
@@ -294,8 +309,7 @@ impl<S, P> PolicySimulator<S, P> {
     /// Distribute initial blocks in the storage stack. This is done entirely
     /// randomly with a fixed seed.
     fn prepare(&mut self) {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(self.seed);
-        for id in 0..self.total_blocks {
+        for id in 1..=self.total_blocks {
             // Try insertion.
             let mut devs = self
                 .stack
@@ -303,7 +317,9 @@ impl<S, P> PolicySimulator<S, P> {
                 .keys()
                 .map(|e| e.clone())
                 .collect::<Vec<Device>>();
-            devs.shuffle(&mut rng);
+            // hash key order not deterministic
+            devs.sort();
+            devs.shuffle(&mut self.rng);
             for dev in devs.iter() {
                 if self.stack.insert(Block(id), dev.clone()).is_none() {
                     break;
@@ -334,15 +350,26 @@ fn main() {
     let sim: PolicySimulator<(), ()> = PolicySimulator {
         stack: StorageStack {
             blocks: [].into(),
-            devices: [(
-                Device::GenericHDD,
-                DeviceState {
-                    free: 1280,
-                    total: 1280,
-                    reserved_until: std::time::UNIX_EPOCH,
-                    queue: VecDeque::new(),
-                },
-            )]
+            devices: [
+                (
+                    Device::SamsungZSSD,
+                    DeviceState {
+                        free: 512,
+                        total: 512,
+                        reserved_until: std::time::UNIX_EPOCH,
+                        queue: VecDeque::new(),
+                    },
+                ),
+                (
+                    Device::OptaneSSD,
+                    DeviceState {
+                        free: 512,
+                        total: 512,
+                        reserved_until: std::time::UNIX_EPOCH,
+                        queue: VecDeque::new(),
+                    },
+                ),
+            ]
             .into(),
             state: (),
             policy: (),
@@ -350,11 +377,10 @@ fn main() {
         now: std::time::UNIX_EPOCH,
         events: BTreeMap::new(),
         dist: ZipfDistribution::new(512, 0.99).unwrap(),
-        rng: rand::thread_rng(),
-        total_blocks: 513,
-        seed: 12345,
-        rw: 0.1,
-        iteration: 10000,
+        rng: rand::rngs::StdRng::seed_from_u64(12345),
+        total_blocks: 512,
+        rw: 0.9,
+        iteration: 1000,
     };
     sim.run()
 }
