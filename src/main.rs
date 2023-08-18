@@ -20,15 +20,16 @@ use std::{
 use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use zipf::ZipfDistribution;
 
+#[allow(non_camel_case_types)]
 #[derive(Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum Device {
     // 6 dimms
-    OptanePMem = 0,
-    OptaneSSD = 1,
-    SamsungZSSD = 2,
-    MicronTLCSSD = 3,
-    GenericHDD = 4,
+    Intel_Optane_PMem_100 = 0,
+    Intel_Optane_SSD_DC_P4800X = 1,
+    Samsung_983_ZET = 2,
+    Micron_9100_MAX = 3,
+    Western_Digital_WD5000AAKS = 4,
     DRAM = 5,
 }
 
@@ -107,27 +108,35 @@ impl Device {
     fn read(&self) -> Duration {
         match self {
             // 30 GiB/s peak
-            Device::OptanePMem => {
+            Device::Intel_Optane_PMem_100 => {
                 Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (30f32 * 1024f32))
             }
             // 2.5 GiB/s peak
-            Device::OptaneSSD => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2517f32),
-            Device::SamsungZSSD => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 3130f32),
-            Device::MicronTLCSSD => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2903f32),
-            Device::GenericHDD => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 94f32),
+            Device::Intel_Optane_SSD_DC_P4800X => {
+                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2517f32)
+            }
+            Device::Samsung_983_ZET => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 3130f32),
+            Device::Micron_9100_MAX => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2903f32),
+            Device::Western_Digital_WD5000AAKS => {
+                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 94f32)
+            }
             Device::DRAM => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32)),
         }
     }
 
     fn write(&self) -> Duration {
         match self {
-            Device::OptanePMem => {
+            Device::Intel_Optane_PMem_100 => {
                 Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (16f32 * 1024f32))
             }
-            Device::OptaneSSD => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2278f32),
-            Device::SamsungZSSD => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 576f32),
-            Device::MicronTLCSSD => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 1408f32),
-            Device::GenericHDD => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 38.2f32),
+            Device::Intel_Optane_SSD_DC_P4800X => {
+                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2278f32)
+            }
+            Device::Samsung_983_ZET => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 576f32),
+            Device::Micron_9100_MAX => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 1408f32),
+            Device::Western_Digital_WD5000AAKS => {
+                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 38.2f32)
+            }
             Device::DRAM => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32)),
         }
     }
@@ -352,7 +361,7 @@ fn main() {
             blocks: [].into(),
             devices: [
                 (
-                    Device::SamsungZSSD,
+                    Device::Samsung_983_ZET,
                     DeviceState {
                         free: 512,
                         total: 512,
@@ -361,7 +370,7 @@ fn main() {
                     },
                 ),
                 (
-                    Device::OptaneSSD,
+                    Device::Intel_Optane_SSD_DC_P4800X,
                     DeviceState {
                         free: 512,
                         total: 512,
