@@ -169,6 +169,9 @@ impl Device {
 pub trait Policy {
     fn new() -> Self;
     fn update(&mut self, accesses: Vec<Access>) -> State;
+    /// Returns the point in time when the policy is next due to be called for
+    /// evaluating possible actions.
+    fn due() -> SystemTime;
 }
 
 pub enum Action {
@@ -220,6 +223,11 @@ impl<S, P> StorageStack<S, P> {
         dev_stats.reserved_until = until;
 
         (until, Event::Finished(now, access, *dev))
+    }
+
+    /// An operation has finished and can be removed from the device queue.
+    fn finish(&mut self, dev: &Device) {
+        self.devices.get_mut(dev).unwrap().queue.pop_front();
     }
 
     fn insert(&mut self, block: Block, device: Device) -> Option<Block> {
@@ -280,6 +288,7 @@ impl<S, P> PolicySimulator<S, P> {
             match ev {
                 Event::Submit(_, _) => unreachable!(),
                 Event::Finished(when_issued, access, device) => {
+                    self.stack.finish(&device);
                     // Step into the future.
                     self.now = then.clone();
                     let lat = match access {
