@@ -1,3 +1,4 @@
+#![feature(return_position_impl_trait_in_trait)]
 /// This project contains a rough-edge simulator description of a multi-device
 /// storage stack to try out some migration policies.
 ///
@@ -17,11 +18,14 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use application::{Application, ZipfApp, ZipfConfig};
 use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use zipf::ZipfDistribution;
 
+mod application;
+
 #[allow(non_camel_case_types)]
-#[derive(Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum Device {
     // 6 dimms
@@ -33,10 +37,10 @@ pub enum Device {
     DRAM = 5,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct Block(usize);
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Access {
     Read(Block),
     Write(Block),
@@ -242,9 +246,12 @@ impl<S, P> StorageStack<S, P> {
 }
 
 /// An event which is noted to happen sometime in the future.
+#[derive(Debug)]
 pub enum Event {
-    Submit(Access, Device),
+    Submit(Access),
     Finished(SystemTime, Access, Device),
+    // // Call the placement policy once and reinject the new start time.
+    // PlacementPolicy,
 }
 
 /// Core unit of the simulation.
@@ -254,80 +261,20 @@ pub enum Event {
 ///
 /// The simulation must handle different parallel access and resource occupation
 /// to reach a satisfying approximation.
-pub struct PolicySimulator<S, P> {
+pub struct PolicySimulator<S, P, A: Application> {
     stack: StorageStack<S, P>,
+    application: A,
     now: SystemTime,
     // Ordered Map, system time is priority.
     events: BTreeMap<SystemTime, Event>,
-    dist: ZipfDistribution,
     rng: StdRng,
-    total_blocks: usize,
-    rw: f64,
-    iteration: usize,
 }
 
-/// A number of requests to submit at once. All requests have to be finished
-/// before a new batch can be issued.
-const BATCH_SIZE: usize = 128;
-
-impl<S, P> PolicySimulator<S, P> {
-    fn step(&mut self) {
-        // generate a series of 100 requests
-        let reqs =
-            RandomAccessSequence::new(&mut self.rng, &mut self.dist, self.rw).take(BATCH_SIZE);
-
-        for req in reqs {
-            let (then, ev) = self.stack.submit(self.now, req);
-            self.events.insert(then, ev);
-        }
-        let mut write_latency = vec![];
-        let mut read_latency = vec![];
-
-        // "Wait" until all requests are finished to enter the next phase.
-        while let Some((then, ev)) = self.events.pop_first() {
-            match ev {
-                Event::Submit(_, _) => unreachable!(),
-                Event::Finished(when_issued, access, device) => {
-                    self.stack.finish(&device);
-                    // Step into the future.
-                    self.now = then.clone();
-                    let lat = match access {
-                        Access::Read(_) => &mut write_latency,
-                        Access::Write(_) => &mut read_latency,
-                    };
-                    lat.push(self.now.duration_since(when_issued).expect("Negative Time"));
-                }
-            }
-        }
-        // End of I/O Phase
-        // TODO: Call Policy now, or do parallel messages (queue) to which a
-        // policy can interject? Take oracle from Haura directly?
-        // FIXME: Use propoer statistics, this is more of debug info
-        println!(
-            "Write: Average {}us, Max {}us",
-            write_latency.iter().map(|d| d.as_micros()).sum::<u128>()
-                / (write_latency.len() as u128),
-            write_latency
-                .iter()
-                .map(|d| d.as_micros())
-                .max()
-                .unwrap_or(0)
-        );
-        println!(
-            "Read: Average {}us, Max {}us",
-            read_latency.iter().map(|d| d.as_micros()).sum::<u128>() / (read_latency.len() as u128),
-            read_latency
-                .iter()
-                .map(|d| d.as_micros())
-                .max()
-                .unwrap_or(0)
-        );
-    }
-
+impl<S, P, A: Application> PolicySimulator<S, P, A> {
     /// Distribute initial blocks in the storage stack. This is done entirely
     /// randomly with a fixed seed.
     fn prepare(&mut self) {
-        for id in 1..=self.total_blocks {
+        for block in self.application.init() {
             // Try insertion.
             let mut devs = self
                 .stack
@@ -339,20 +286,47 @@ impl<S, P> PolicySimulator<S, P> {
             devs.sort();
             devs.shuffle(&mut self.rng);
             for dev in devs.iter() {
-                if self.stack.insert(Block(id), dev.clone()).is_none() {
+                if self.stack.insert(block, dev.clone()).is_none() {
                     break;
                 }
             }
         }
     }
 
+    /// Execute the main event digestion.
     fn run(mut self) {
-        println!("Start run");
         self.prepare();
-        for idx in 0..self.iteration {
-            println!("Iteration {idx}");
-            self.step();
+        // Start the application
+        for (idx, access) in self.application.start().enumerate() {
+            self.events.insert(
+                self.now + Duration::from_nanos(idx as u64),
+                Event::Submit(access),
+            );
         }
+        while let Some((then, event)) = self.events.pop_first() {
+            // Step forward to the current timestamp
+            self.now = then;
+            match event {
+                Event::Submit(access) => {
+                    let (then, ev) = self.stack.submit(self.now, access);
+                    self.events.insert(then, ev);
+                }
+                Event::Finished(when_issued, access, device) => {
+                    self.stack.finish(&device);
+                    if let Some((future, accesses)) =
+                        self.application.done(access, when_issued, self.now)
+                    {
+                        for (idx, acc) in accesses.enumerate() {
+                            self.events.insert(
+                                future + Duration::from_nanos(idx as u64),
+                                Event::Submit(acc),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         println!(
             "Runtime: {}s",
             self.now
@@ -365,7 +339,7 @@ impl<S, P> PolicySimulator<S, P> {
 
 fn main() {
     // TODO: Read config
-    let sim: PolicySimulator<(), ()> = PolicySimulator {
+    let sim: PolicySimulator<(), (), ZipfApp> = PolicySimulator {
         stack: StorageStack {
             blocks: [].into(),
             devices: [
@@ -392,13 +366,16 @@ fn main() {
             state: (),
             policy: (),
         },
+        application: ZipfApp::new(ZipfConfig {
+            seed: 12345,
+            size: 512,
+            rw: 0.9,
+            theta: 0.99,
+            iteration: 1000,
+        }),
         now: std::time::UNIX_EPOCH,
         events: BTreeMap::new(),
-        dist: ZipfDistribution::new(512, 0.99).unwrap(),
         rng: rand::rngs::StdRng::seed_from_u64(12345),
-        total_blocks: 512,
-        rw: 0.9,
-        iteration: 1000,
     };
     sim.run()
 }
