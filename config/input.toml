@@ -16,10 +16,10 @@ seed = 54321
 # Which devices will be used.
 [devices]
 
-[devices.MyIdentifier]
-kind = "Intel_Optane_PMem_100"
-# Total size of device in number of blocks.
-capacity = 123
+#[devices.MyIdentifier]
+#kind = "Intel_Optane_PMem_100"
+## Total size of device in number of blocks.
+#capacity = 123
 
 [devices.fast_ssd]
 kind = "Samsung_983_ZET"

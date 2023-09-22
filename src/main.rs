@@ -200,6 +200,7 @@ pub struct BlockState {
 }
 
 pub struct DeviceState {
+    kind: Device,
     // Number of blocks currently used.
     free: usize,
     // Absolute number of blocks which can be stored.
@@ -209,8 +210,8 @@ pub struct DeviceState {
 }
 
 pub struct StorageStack<S, P> {
-    blocks: HashMap<Block, Device>,
-    devices: HashMap<Device, DeviceState>,
+    blocks: HashMap<Block, String>,
+    devices: HashMap<String, DeviceState>,
     state: S,
     policy: P,
 }
@@ -223,21 +224,21 @@ impl<S, P> StorageStack<S, P> {
 
         let until = dev_stats.reserved_until.max(now)
             + match access {
-                Access::Read(_) => dev.read(),
-                Access::Write(_) => dev.write(),
+                Access::Read(_) => dev_stats.kind.read(),
+                Access::Write(_) => dev_stats.kind.write(),
             };
         dev_stats.queue.push_back(access.clone());
         dev_stats.reserved_until = until;
 
-        (until, Event::Finished(now, access, *dev))
+        (until, Event::Finished(now, access, dev.clone()))
     }
 
     /// An operation has finished and can be removed from the device queue.
-    fn finish(&mut self, dev: &Device) {
+    fn finish(&mut self, dev: &String) {
         self.devices.get_mut(dev).unwrap().queue.pop_front();
     }
 
-    fn insert(&mut self, block: Block, device: Device) -> Option<Block> {
+    fn insert(&mut self, block: Block, device: String) -> Option<Block> {
         let dev = self.devices.get_mut(&device).unwrap();
         if dev.free > 0 {
             dev.free = dev.free.saturating_sub(1);
@@ -252,7 +253,7 @@ impl<S, P> StorageStack<S, P> {
 #[derive(Debug)]
 pub enum Event {
     Submit(Access),
-    Finished(SystemTime, Access, Device),
+    Finished(SystemTime, Access, String),
     // // Call the placement policy once and reinject the new start time.
     // PlacementPolicy,
 }
@@ -284,7 +285,7 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
                 .devices
                 .keys()
                 .map(|e| e.clone())
-                .collect::<Vec<Device>>();
+                .collect::<Vec<String>>();
             // hash key order not deterministic
             devs.sort();
             devs.shuffle(&mut self.rng);
@@ -340,7 +341,7 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
     }
 }
 
-fn main() {
+fn main() ->  {
     let file = std::fs::OpenOptions::new()
         .read(true)
         .open("config/input.toml");
@@ -352,27 +353,7 @@ fn main() {
     let sim: PolicySimulator<(), (), ZipfApp> = PolicySimulator {
         stack: StorageStack {
             blocks: [].into(),
-            devices: [
-                (
-                    Device::Samsung_983_ZET,
-                    DeviceState {
-                        free: 512,
-                        total: 512,
-                        reserved_until: std::time::UNIX_EPOCH,
-                        queue: VecDeque::new(),
-                    },
-                ),
-                (
-                    Device::Intel_Optane_SSD_DC_P4800X,
-                    DeviceState {
-                        free: 512,
-                        total: 512,
-                        reserved_until: std::time::UNIX_EPOCH,
-                        queue: VecDeque::new(),
-                    },
-                ),
-            ]
-            .into(),
+            devices: config.devices(),
             state: (),
             policy: (),
         },

@@ -14,21 +14,19 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn devices(&self) -> HashMap<String, (Device, DeviceState)> {
+    pub fn devices(&self) -> HashMap<String, DeviceState> {
         self.devices
             .iter()
             .map(|(id, dev)| {
                 (
                     id.clone(),
-                    (
-                        dev.kind,
-                        DeviceState {
-                            free: dev.capacity,
-                            total: dev.capacity,
-                            reserved_until: std::time::UNIX_EPOCH,
-                            queue: VecDeque::new(),
-                        },
-                    ),
+                    DeviceState {
+                        kind: dev.kind,
+                        free: dev.capacity,
+                        total: dev.capacity,
+                        reserved_until: std::time::UNIX_EPOCH,
+                        queue: VecDeque::new(),
+                    },
                 )
             })
             .collect()
