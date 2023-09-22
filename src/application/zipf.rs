@@ -4,12 +4,14 @@ use std::{
 };
 
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use serde::Deserialize;
 use zipf::ZipfDistribution;
 
 use crate::{Access, Block, RandomAccessSequence};
 
 use super::Application;
 
+#[derive(Deserialize)]
 pub struct ZipfConfig {
     pub seed: u64,
     pub size: usize,
@@ -32,7 +34,7 @@ pub struct ZipfApp {
 }
 
 impl ZipfApp {
-    pub fn new(config: ZipfConfig) -> Self {
+    pub fn new(config: &ZipfConfig) -> Self {
         assert!(config.size > 0);
         assert!(config.theta > 0.0);
         assert!(config.iteration > 0);

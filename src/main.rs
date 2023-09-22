@@ -15,17 +15,20 @@
 /// be modelled.
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
+    io::Read,
     time::{Duration, SystemTime},
 };
 
 use application::{Application, ZipfApp, ZipfConfig};
 use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
+use serde::Deserialize;
 use zipf::ZipfDistribution;
 
 mod application;
+mod config;
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+#[derive(Deserialize, Debug, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum Device {
     // 6 dimms
@@ -338,6 +341,13 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
 }
 
 fn main() {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .open("config/input.toml");
+    let mut content = String::new();
+    file.unwrap().read_to_string(&mut content);
+    let config: config::Config = toml::from_str(&content).unwrap();
+
     // TODO: Read config
     let sim: PolicySimulator<(), (), ZipfApp> = PolicySimulator {
         stack: StorageStack {
@@ -366,13 +376,7 @@ fn main() {
             state: (),
             policy: (),
         },
-        application: ZipfApp::new(ZipfConfig {
-            seed: 12345,
-            size: 512,
-            rw: 0.9,
-            theta: 0.99,
-            iteration: 1000,
-        }),
+        application: config.app.build(),
         now: std::time::UNIX_EPOCH,
         events: BTreeMap::new(),
         rng: rand::rngs::StdRng::seed_from_u64(12345),
