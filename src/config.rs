@@ -6,6 +6,7 @@ use crate::{
 use super::Device;
 use serde::Deserialize;
 use std::collections::{HashMap, VecDeque};
+use strum::EnumIter;
 
 #[derive(Deserialize)]
 pub struct Config {
@@ -33,7 +34,7 @@ impl Config {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, EnumIter, Debug)]
 pub enum App {
     /// An application with a zipfian distributed random access pattern on blocks
     Zipf(ZipfConfig),

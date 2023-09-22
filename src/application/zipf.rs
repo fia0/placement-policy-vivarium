@@ -11,7 +11,7 @@ use crate::{Access, Block, RandomAccessSequence};
 
 use super::Application;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, Default)]
 pub struct ZipfConfig {
     pub seed: u64,
     pub size: usize,

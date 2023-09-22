@@ -16,19 +16,25 @@
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     io::Read,
+    path::PathBuf,
     time::{Duration, SystemTime},
 };
 
 use application::{Application, ZipfApp, ZipfConfig};
+use clap::{Command, Parser, Subcommand};
 use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use serde::Deserialize;
+use strum::{EnumIter, IntoEnumIterator};
+use thiserror::Error;
 use zipf::ZipfDistribution;
+
+use crate::config::App;
 
 mod application;
 mod config;
 
 #[allow(non_camel_case_types)]
-#[derive(Deserialize, Debug, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+#[derive(Deserialize, Debug, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, EnumIter)]
 #[repr(u8)]
 pub enum Device {
     // 6 dimms
@@ -216,11 +222,31 @@ pub struct StorageStack<S, P> {
     policy: P,
 }
 
+#[derive(Error, Debug)]
+pub enum StorageError {
+    #[error("Could not find block {block:?}")]
+    InvalidBlock { block: Block },
+    #[error("Could not find device {id}")]
+    InvalidDevice { id: String },
+}
+
 impl<S, P> StorageStack<S, P> {
     /// Act on specified block and return subsequent event.
-    fn submit(&mut self, now: SystemTime, access: Access) -> (SystemTime, Event) {
-        let dev = self.blocks.get(access.block()).expect("Invalid Block");
-        let dev_stats = self.devices.get_mut(dev).expect("Invalid Device");
+    fn submit(
+        &mut self,
+        now: SystemTime,
+        access: Access,
+    ) -> Result<(SystemTime, Event), StorageError> {
+        let dev = self
+            .blocks
+            .get(access.block())
+            .ok_or(StorageError::InvalidBlock {
+                block: access.block().clone(),
+            })?;
+        let dev_stats = self
+            .devices
+            .get_mut(dev)
+            .ok_or(StorageError::InvalidDevice { id: dev.clone() })?;
 
         let until = dev_stats.reserved_until.max(now)
             + match access {
@@ -230,7 +256,7 @@ impl<S, P> StorageStack<S, P> {
         dev_stats.queue.push_back(access.clone());
         dev_stats.reserved_until = until;
 
-        (until, Event::Finished(now, access, dev.clone()))
+        Ok((until, Event::Finished(now, access, dev.clone())))
     }
 
     /// An operation has finished and can be removed from the device queue.
@@ -259,12 +285,6 @@ pub enum Event {
 }
 
 /// Core unit of the simulation.
-///
-/// Simulated Phases
-/// ----------------
-///
-/// The simulation must handle different parallel access and resource occupation
-/// to reach a satisfying approximation.
 pub struct PolicySimulator<S, P, A: Application> {
     stack: StorageStack<S, P>,
     application: A,
@@ -298,7 +318,7 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
     }
 
     /// Execute the main event digestion.
-    fn run(mut self) {
+    fn run(mut self) -> Result<(), SimError> {
         self.prepare();
         // Start the application
         for (idx, access) in self.application.start().enumerate() {
@@ -312,7 +332,7 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
             self.now = then;
             match event {
                 Event::Submit(access) => {
-                    let (then, ev) = self.stack.submit(self.now, access);
+                    let (then, ev) = self.stack.submit(self.now, access)?;
                     self.events.insert(then, ev);
                 }
                 Event::Finished(when_issued, access, device) => {
@@ -337,30 +357,93 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs_f64()
-        )
+        );
+        Ok(())
     }
 }
 
-fn main() ->  {
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .open("config/input.toml");
-    let mut content = String::new();
-    file.unwrap().read_to_string(&mut content);
-    let config: config::Config = toml::from_str(&content).unwrap();
+#[derive(Error, Debug)]
+pub enum SimError {
+    #[error("Could not open or read configuration file: {source}")]
+    CouldNotOpenConfig {
+        #[from]
+        source: std::io::Error,
+    },
+    #[error("Encountered fatal storage error: {source}")]
+    StorageError {
+        #[from]
+        source: StorageError,
+    },
+    #[error("Error in configuration: {source}")]
+    ConfigurationError {
+        #[from]
+        source: toml::de::Error,
+    },
+    #[error("An error occured.")]
+    Generic,
+}
 
-    // TODO: Read config
-    let sim: PolicySimulator<(), (), ZipfApp> = PolicySimulator {
-        stack: StorageStack {
-            blocks: [].into(),
-            devices: config.devices(),
-            state: (),
-            policy: (),
-        },
-        application: config.app.build(),
-        now: std::time::UNIX_EPOCH,
-        events: BTreeMap::new(),
-        rng: rand::rngs::StdRng::seed_from_u64(12345),
-    };
-    sim.run()
+#[derive(Parser, Debug)]
+struct SimCli {
+    #[command(subcommand)]
+    cmd: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    #[command(about = "List all available devices.")]
+    Devices,
+    #[command(about = "List all available applications.")]
+    Applications,
+    #[command(about = "Run a storage stack simulation.")]
+    Sim {
+        #[arg(id = "CONFIG_PATH")]
+        config: PathBuf,
+    },
+}
+
+fn main() -> Result<(), SimError> {
+    let args = SimCli::parse();
+
+    match args.cmd {
+        Commands::Devices => {
+            // Print out all devices
+            println!("Available devices:\n");
+            for dev in Device::iter() {
+                println!(
+                    "\t{dev:?} (Read: {} ns, Write: {} ns)",
+                    dev.read().as_nanos(),
+                    dev.write().as_nanos()
+                );
+            }
+            Ok(())
+        }
+        Commands::Applications => {
+            println!("Available Applications:\n");
+            for app in App::iter() {
+                println!("\t{app:?}");
+            }
+            Ok(())
+        }
+        Commands::Sim { config } => {
+            let mut file = std::fs::OpenOptions::new().read(true).open(config)?;
+            let mut content = String::new();
+            file.read_to_string(&mut content)?;
+            let config: config::Config = toml::from_str(&content)?;
+
+            let sim: PolicySimulator<(), (), ZipfApp> = PolicySimulator {
+                stack: StorageStack {
+                    blocks: [].into(),
+                    devices: config.devices(),
+                    state: (),
+                    policy: (),
+                },
+                application: config.app.build(),
+                now: std::time::UNIX_EPOCH,
+                events: BTreeMap::new(),
+                rng: rand::rngs::StdRng::seed_from_u64(12345),
+            };
+            sim.run()
+        }
+    }
 }
