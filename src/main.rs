@@ -20,8 +20,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use application::{Application, ZipfApp, ZipfConfig};
-use clap::{Command, Parser, Subcommand};
+use application::{Application, ZipfApp};
+use cache::Cache;
+use clap::{Parser, Subcommand};
 use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use serde::Deserialize;
 use strum::{EnumIter, IntoEnumIterator};
@@ -31,6 +32,7 @@ use zipf::ZipfDistribution;
 use crate::config::App;
 
 mod application;
+mod cache;
 mod config;
 
 #[allow(non_camel_case_types)]
@@ -44,6 +46,12 @@ pub enum Device {
     Micron_9100_MAX = 3,
     Western_Digital_WD5000AAKS = 4,
     DRAM = 5,
+}
+
+impl Default for Device {
+    fn default() -> Self {
+        Self::DRAM
+    }
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -82,6 +90,13 @@ impl Access {
                 true => Self::Read(block),
                 false => Self::Write(block),
             })
+    }
+
+    pub fn is_read(&self) -> bool {
+        match self {
+            Access::Read(_) => true,
+            Access::Write(_) => false,
+        }
     }
 
     pub fn block(&self) -> &Block {
@@ -218,6 +233,7 @@ pub struct DeviceState {
 pub struct StorageStack<S, P> {
     blocks: HashMap<Block, String>,
     devices: HashMap<String, DeviceState>,
+    cache: Box<dyn Cache>,
     state: S,
     policy: P,
 }
@@ -237,6 +253,16 @@ impl<S, P> StorageStack<S, P> {
         now: SystemTime,
         access: Access,
     ) -> Result<(SystemTime, Event), StorageError> {
+        // Check if blocks arlready contained in the cache
+        match &access {
+            Access::Read(b) => {
+                if let Some(dur) = self.cache.contains(b) {
+                    return Ok((now + dur, Event::Finished(now, access, Origin::FromCache)));
+                }
+            }
+            Access::Write(_) => {}
+        }
+
         let dev = self
             .blocks
             .get(access.block())
@@ -256,12 +282,20 @@ impl<S, P> StorageStack<S, P> {
         dev_stats.queue.push_back(access.clone());
         dev_stats.reserved_until = until;
 
-        Ok((until, Event::Finished(now, access, dev.clone())))
+        Ok((
+            until,
+            Event::Finished(now, access, Origin::FromDisk(dev.clone())),
+        ))
     }
 
     /// An operation has finished and can be removed from the device queue.
-    fn finish(&mut self, dev: &String) {
-        self.devices.get_mut(dev).unwrap().queue.pop_front();
+    fn finish(&mut self, dev: &Origin) {
+        match dev {
+            Origin::FromCache => {}
+            Origin::FromDisk(dev) => {
+                self.devices.get_mut(dev).unwrap().queue.pop_front();
+            }
+        }
     }
 
     fn insert(&mut self, block: Block, device: String) -> Option<Block> {
@@ -279,9 +313,15 @@ impl<S, P> StorageStack<S, P> {
 #[derive(Debug)]
 pub enum Event {
     Submit(Access),
-    Finished(SystemTime, Access, String),
+    Finished(SystemTime, Access, Origin),
     // // Call the placement policy once and reinject the new start time.
     // PlacementPolicy,
+}
+
+#[derive(Debug)]
+pub enum Origin {
+    FromCache,
+    FromDisk(String),
 }
 
 /// Core unit of the simulation.
@@ -337,6 +377,9 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
                 }
                 Event::Finished(when_issued, access, device) => {
                     self.stack.finish(&device);
+                    if access.is_read() && self.stack.cache.contains(access.block()).is_none() {
+                        self.stack.cache.insert(access.block().to_owned());
+                    }
                     if let Some((future, accesses)) =
                         self.application.done(access, when_issued, self.now)
                     {
@@ -437,6 +480,7 @@ fn main() -> Result<(), SimError> {
                     devices: config.devices(),
                     state: (),
                     policy: (),
+                    cache: Box::new(cache::Fifo::new(24, Device::DRAM)),
                 },
                 application: config.app.build(),
                 now: std::time::UNIX_EPOCH,
