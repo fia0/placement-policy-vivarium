@@ -26,7 +26,7 @@ impl Fifo {
 }
 
 impl Cache for Fifo {
-    fn contains(&self, block: &Block) -> Option<Duration> {
+    fn contains(&mut self, block: &Block) -> Option<Duration> {
         self.blocks.get(block).map(|_| self.on_device.read())
     }
 
@@ -40,5 +40,9 @@ impl Cache for Fifo {
             }
         }
         None
+    }
+
+    fn write(&self) -> Duration {
+        self.on_device.write()
     }
 }

@@ -6,11 +6,17 @@ use std::time::Duration;
 use super::Block;
 
 mod fifo;
+mod lru;
+mod noop;
 pub use fifo::Fifo;
+pub use lru::Lru;
+pub use noop::Noop;
 
 pub trait Cache {
     /// Check whether the cache contains a given block.
-    fn contains(&self, block: &Block) -> Option<Duration>;
+    fn contains(&mut self, block: &Block) -> Option<Duration>;
+    /// Reading time on backing device.
+    fn write(&self) -> Duration;
     /// Insert a new entry to cache. Returns eventually evicted entry.
     fn insert(&mut self, block: Block) -> Option<Block>;
 }

@@ -260,7 +260,14 @@ impl<S, P> StorageStack<S, P> {
                     return Ok((now + dur, Event::Finished(now, access, Origin::FromCache)));
                 }
             }
-            Access::Write(_) => {}
+            Access::Write(b) => {
+                if let Some(_) = self.cache.contains(b) {
+                    return Ok((
+                        now + self.cache.write(),
+                        Event::Finished(now, access, Origin::FromCache),
+                    ));
+                }
+            }
         }
 
         let dev = self
@@ -378,7 +385,11 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
                 Event::Finished(when_issued, access, device) => {
                     self.stack.finish(&device);
                     if access.is_read() && self.stack.cache.contains(access.block()).is_none() {
-                        self.stack.cache.insert(access.block().to_owned());
+                        if let Some(evicted) = self.stack.cache.insert(access.block().to_owned()) {
+                            let (then, ev) = self.stack.submit(self.now, Access::Write(evicted))?;
+                            self.events.insert(then, ev);
+                            continue;
+                        };
                     }
                     if let Some((future, accesses)) =
                         self.application.done(access, when_issued, self.now)
@@ -480,7 +491,7 @@ fn main() -> Result<(), SimError> {
                     devices: config.devices(),
                     state: (),
                     policy: (),
-                    cache: Box::new(cache::Fifo::new(24, Device::DRAM)),
+                    cache: config.cache(),
                 },
                 application: config.app.build(),
                 now: std::time::UNIX_EPOCH,

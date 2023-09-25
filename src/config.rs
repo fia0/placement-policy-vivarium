@@ -1,5 +1,6 @@
 use crate::{
     application::{Application, ZipfApp, ZipfConfig},
+    cache::{Cache, Fifo, Lru, Noop},
     DeviceState,
 };
 
@@ -12,6 +13,7 @@ use strum::EnumIter;
 pub struct Config {
     pub app: App,
     pub devices: HashMap<String, DeviceConfig>,
+    pub cache: Option<CacheConfig>,
 }
 
 impl Config {
@@ -31,6 +33,13 @@ impl Config {
                 )
             })
             .collect()
+    }
+
+    pub fn cache(&self) -> Box<dyn Cache> {
+        match &self.cache {
+            Some(c) => c.build(),
+            None => Box::new(Noop {}),
+        }
     }
 }
 
@@ -52,4 +61,26 @@ impl App {
 pub struct DeviceConfig {
     kind: Device,
     capacity: usize,
+}
+
+#[derive(Deserialize)]
+pub struct CacheConfig {
+    algorithm: CacheAlgorithm,
+    device: Device,
+    capacity: usize,
+}
+
+#[derive(Deserialize, PartialEq, Eq)]
+pub enum CacheAlgorithm {
+    Lru,
+    Fifo,
+}
+
+impl CacheConfig {
+    pub fn build(&self) -> Box<dyn Cache> {
+        match self.algorithm {
+            CacheAlgorithm::Lru => Box::new(Lru::new(self.capacity, self.device)),
+            CacheAlgorithm::Fifo => Box::new(Fifo::new(self.capacity, self.device)),
+        }
+    }
 }

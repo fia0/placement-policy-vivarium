@@ -13,6 +13,11 @@ size = 512
 iteration = 1000
 seed = 54321
 
+[cache]
+algorithm = "Lru"
+capacity = 18
+device = "DRAM"
+
 # Which devices will be used.
 [devices]
 
