@@ -16,4 +16,8 @@ impl Cache for Noop {
     fn write(&self) -> std::time::Duration {
         Duration::ZERO
     }
+
+    fn clear(&mut self) -> Box<dyn Iterator<Item = crate::Block>> {
+        Box::new([].into_iter())
+    }
 }

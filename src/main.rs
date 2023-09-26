@@ -252,19 +252,23 @@ impl<S, P> StorageStack<S, P> {
         &mut self,
         now: SystemTime,
         access: Access,
+        issuer: Issuer,
     ) -> Result<(SystemTime, Event), StorageError> {
         // Check if blocks arlready contained in the cache
         match &access {
             Access::Read(b) => {
                 if let Some(dur) = self.cache.contains(b) {
-                    return Ok((now + dur, Event::Finished(now, access, Origin::FromCache)));
+                    return Ok((
+                        now + dur,
+                        Event::Finished(now, access, Origin::FromCache, issuer),
+                    ));
                 }
             }
             Access::Write(b) => {
                 if let Some(_) = self.cache.contains(b) {
                     return Ok((
                         now + self.cache.write(),
-                        Event::Finished(now, access, Origin::FromCache),
+                        Event::Finished(now, access, Origin::FromCache, issuer),
                     ));
                 }
             }
@@ -291,7 +295,7 @@ impl<S, P> StorageStack<S, P> {
 
         Ok((
             until,
-            Event::Finished(now, access, Origin::FromDisk(dev.clone())),
+            Event::Finished(now, access, Origin::FromDisk(dev.clone()), issuer),
         ))
     }
 
@@ -319,10 +323,16 @@ impl<S, P> StorageStack<S, P> {
 /// An event which is noted to happen sometime in the future.
 #[derive(Debug)]
 pub enum Event {
-    Submit(Access),
-    Finished(SystemTime, Access, Origin),
+    Submit(Access, Issuer),
+    Finished(SystemTime, Access, Origin, Issuer),
     // // Call the placement policy once and reinject the new start time.
     // PlacementPolicy,
+}
+
+#[derive(Debug, Clone)]
+pub enum Issuer {
+    Application,
+    Cache,
 }
 
 #[derive(Debug)]
@@ -371,38 +381,69 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
         for (idx, access) in self.application.start().enumerate() {
             self.events.insert(
                 self.now + Duration::from_nanos(idx as u64),
-                Event::Submit(access),
+                Event::Submit(access, Issuer::Application),
             );
         }
         while let Some((then, event)) = self.events.pop_first() {
             // Step forward to the current timestamp
             self.now = then;
             match event {
-                Event::Submit(access) => {
-                    let (then, ev) = self.stack.submit(self.now, access)?;
+                Event::Submit(access, issr) => {
+                    let (then, ev) = self.stack.submit(self.now, access, issr)?;
                     self.events.insert(then, ev);
                 }
-                Event::Finished(when_issued, access, device) => {
+                Event::Finished(when_issued, access, device, issr) => {
                     self.stack.finish(&device);
+                    let mut off = 0;
+
                     if access.is_read() && self.stack.cache.contains(access.block()).is_none() {
                         if let Some(evicted) = self.stack.cache.insert(access.block().to_owned()) {
-                            let (then, ev) = self.stack.submit(self.now, Access::Write(evicted))?;
-                            self.events.insert(then, ev);
-                            continue;
+                            let (then, ev) = self.stack.submit(
+                                self.now,
+                                Access::Write(evicted),
+                                Issuer::Cache,
+                            )?;
+                            assert!(!self
+                                .events
+                                .contains_key(&(then + Duration::from_nanos(off))));
+                            self.events.insert(then + Duration::from_nanos(off), ev);
+                            off += 1;
                         };
                     }
-                    if let Some((future, accesses)) =
-                        self.application.done(access, when_issued, self.now)
-                    {
-                        for (idx, acc) in accesses.enumerate() {
-                            self.events.insert(
-                                future + Duration::from_nanos(idx as u64),
-                                Event::Submit(acc),
-                            );
+                    if let Issuer::Application = &issr {
+                        if let (Some((future, accesses)), _) =
+                            (self.application.done(access, when_issued, self.now), &issr)
+                        {
+                            for acc in accesses {
+                                off += 1;
+                                assert!(!self
+                                    .events
+                                    .contains_key(&(future + Duration::from_nanos(off))));
+                                self.events.insert(
+                                    future + Duration::from_nanos(off),
+                                    Event::Submit(acc, Issuer::Application),
+                                );
+                            }
                         }
                     }
                 }
             }
+        }
+
+        // Clear cache
+        println!("Application finished");
+        for (off, block) in self.stack.cache.clear().enumerate() {
+            if let Ok((then, ev)) = self.stack.submit(
+                self.now + Duration::from_nanos(off as u64),
+                Access::Write(block),
+                Issuer::Cache,
+            ) {
+                self.events.insert(then, ev);
+            }
+        }
+
+        if let Some((k, _v)) = self.events.last_key_value() {
+            self.now = *k;
         }
 
         println!(

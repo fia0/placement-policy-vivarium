@@ -74,6 +74,7 @@ pub struct CacheConfig {
 pub enum CacheAlgorithm {
     Lru,
     Fifo,
+    Noop,
 }
 
 impl CacheConfig {
@@ -81,6 +82,7 @@ impl CacheConfig {
         match self.algorithm {
             CacheAlgorithm::Lru => Box::new(Lru::new(self.capacity, self.device)),
             CacheAlgorithm::Fifo => Box::new(Fifo::new(self.capacity, self.device)),
+            CacheAlgorithm::Noop => Box::new(Noop {}),
         }
     }
 }

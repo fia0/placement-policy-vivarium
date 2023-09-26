@@ -18,6 +18,9 @@ pub struct ZipfConfig {
     pub rw: f64,
     pub theta: f64,
     pub iteration: usize,
+    /// A number of requests to submit at once. All requests have to be finished
+    /// before a new batch can be issued.
+    pub batch: usize,
 }
 
 /// Batch-oriented application with zipfian access pattern.
@@ -26,6 +29,7 @@ pub struct ZipfApp {
     dist: ZipfDistribution,
     rng: StdRng,
     current_reqs: usize,
+    batch: usize,
     rw: f64,
     write_latency: Vec<Duration>,
     read_latency: Vec<Duration>,
@@ -44,6 +48,7 @@ impl ZipfApp {
             current_reqs: 0,
             rng: StdRng::seed_from_u64(config.seed),
             rw: config.rw,
+            batch: config.batch,
             write_latency: vec![],
             read_latency: vec![],
             iteration: config.iteration,
@@ -52,19 +57,15 @@ impl ZipfApp {
     }
 }
 
-/// A number of requests to submit at once. All requests have to be finished
-/// before a new batch can be issued.
-const BATCH_SIZE: usize = 128;
-
 impl Application for ZipfApp {
     fn init(&self) -> impl Iterator<Item = Block> {
         (1..=self.size).map(|num| Block(num))
     }
 
     fn start(&mut self) -> impl Iterator<Item = Access> + '_ {
-        self.current_reqs += BATCH_SIZE;
+        self.current_reqs += self.batch;
         RandomAccessSequence::new(&mut self.rng, &mut self.dist, self.rw)
-            .take(BATCH_SIZE)
+            .take(self.batch)
             .into_iter()
     }
 
@@ -87,16 +88,18 @@ impl Application for ZipfApp {
             // TODO: Call Policy now, or do parallel messages (queue) to which a
             // policy can interject? Take oracle from Haura directly?
             // FIXME: Use propoer statistics, this is more of debug info
-            let batch_writes = self.write_latency.iter().rev().take(BATCH_SIZE);
+            let batch_writes = self.write_latency.iter().rev().take(self.batch);
             println!(
-                "Write: Average {}us, Max {}us",
-                batch_writes.clone().map(|d| d.as_micros()).sum::<u128>() / BATCH_SIZE as u128,
+                "({}) Write: Average {}us, Max {}us",
+                self.cur_iteration,
+                batch_writes.clone().map(|d| d.as_micros()).sum::<u128>() / self.batch as u128,
                 batch_writes.map(|d| d.as_micros()).max().unwrap_or(0)
             );
-            let batch_reads = self.read_latency.iter().rev().take(BATCH_SIZE);
+            let batch_reads = self.read_latency.iter().rev().take(self.batch);
             println!(
-                "Read: Average {}us, Max {}us",
-                batch_reads.clone().map(|d| d.as_micros()).sum::<u128>() / BATCH_SIZE as u128,
+                "({}) Read: Average {}us, Max {}us",
+                self.cur_iteration,
+                batch_reads.clone().map(|d| d.as_micros()).sum::<u128>() / self.batch as u128,
                 batch_reads.map(|d| d.as_micros()).max().unwrap_or(0)
             );
             self.cur_iteration += 1;

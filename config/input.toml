@@ -8,14 +8,15 @@ rw = 0.1
 # Theta for Zipfian Distribution
 theta = 0.99
 # Total number of blocks which are present in the storage stack.
-size = 512
+size = 4096
+batch = 256
 # How many batches are submitted to the stack.
 iteration = 1000
 seed = 54321
 
 [cache]
-algorithm = "Lru"
-capacity = 18
+algorithm = "Noop"
+capacity = 32
 device = "DRAM"
 
 # Which devices will be used.

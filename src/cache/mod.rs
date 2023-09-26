@@ -19,4 +19,6 @@ pub trait Cache {
     fn write(&self) -> Duration;
     /// Insert a new entry to cache. Returns eventually evicted entry.
     fn insert(&mut self, block: Block) -> Option<Block>;
+    /// Removes all elements in the cache an returns an iterator over contained elements.
+    fn clear(&mut self) -> Box<dyn Iterator<Item = Block>>;
 }

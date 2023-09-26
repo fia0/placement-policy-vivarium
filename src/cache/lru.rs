@@ -51,4 +51,10 @@ impl Cache for Lru {
     fn write(&self) -> std::time::Duration {
         self.on_device.write()
     }
+
+    fn clear(&mut self) -> Box<dyn Iterator<Item = Block>> {
+        let mut tmp = VecDeque::new();
+        std::mem::swap(&mut self.entries, &mut tmp);
+        Box::new(tmp.into_iter())
+    }
 }

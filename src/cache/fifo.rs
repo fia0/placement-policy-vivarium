@@ -45,4 +45,11 @@ impl Cache for Fifo {
     fn write(&self) -> Duration {
         self.on_device.write()
     }
+
+    fn clear(&mut self) -> Box<dyn Iterator<Item = Block>> {
+        let mut tmp = HashSet::new();
+        std::mem::swap(&mut self.blocks, &mut tmp);
+        self.queue.clear();
+        Box::new(tmp.into_iter())
+    }
 }
