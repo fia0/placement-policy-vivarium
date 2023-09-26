@@ -254,7 +254,7 @@ impl<S, P> StorageStack<S, P> {
         access: Access,
         issuer: Issuer,
     ) -> Result<(SystemTime, Event), StorageError> {
-        // Check if blocks arlready contained in the cache
+        // Check if blocks already contained in the cache
         match &access {
             Access::Read(b) => {
                 if let Some(dur) = self.cache.contains(b) {
@@ -374,15 +374,36 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
         }
     }
 
+    /// Insert events into the event queue and avoid any kind of collision.
+    fn insert_event(&mut self, pit: SystemTime, ev: Event) {
+        if !self.events.contains_key(&pit) {
+            self.events.insert(pit, ev);
+        } else {
+            let mut off = 0;
+            loop {
+                match self.events.entry(pit + Duration::from_nanos(off)) {
+                    std::collections::btree_map::Entry::Vacant(e) => {
+                        e.insert(ev);
+                        break;
+                    }
+                    std::collections::btree_map::Entry::Occupied(_) => {}
+                }
+                off += 1;
+            }
+        }
+    }
+
     /// Execute the main event digestion.
     fn run(mut self) -> Result<(), SimError> {
         self.prepare();
         // Start the application
-        for (idx, access) in self.application.start().enumerate() {
-            self.events.insert(
-                self.now + Duration::from_nanos(idx as u64),
-                Event::Submit(access, Issuer::Application),
-            );
+        for access in self
+            .application
+            .start()
+            .collect::<Vec<Access>>()
+            .into_iter()
+        {
+            self.insert_event(self.now, Event::Submit(access, Issuer::Application));
         }
         while let Some((then, event)) = self.events.pop_first() {
             // Step forward to the current timestamp
@@ -390,12 +411,10 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
             match event {
                 Event::Submit(access, issr) => {
                     let (then, ev) = self.stack.submit(self.now, access, issr)?;
-                    self.events.insert(then, ev);
+                    self.insert_event(then, ev);
                 }
                 Event::Finished(when_issued, access, device, issr) => {
                     self.stack.finish(&device);
-                    let mut off = 0;
-
                     if access.is_read() && self.stack.cache.contains(access.block()).is_none() {
                         if let Some(evicted) = self.stack.cache.insert(access.block().to_owned()) {
                             let (then, ev) = self.stack.submit(
@@ -403,26 +422,17 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
                                 Access::Write(evicted),
                                 Issuer::Cache,
                             )?;
-                            assert!(!self
-                                .events
-                                .contains_key(&(then + Duration::from_nanos(off))));
-                            self.events.insert(then + Duration::from_nanos(off), ev);
-                            off += 1;
+                            self.insert_event(then, ev);
                         };
                     }
                     if let Issuer::Application = &issr {
-                        if let (Some((future, accesses)), _) =
-                            (self.application.done(access, when_issued, self.now), &issr)
+                        if let Some((future, accesses)) = self
+                            .application
+                            .done(access, when_issued, self.now)
+                            .map(|(future, accs)| (future, accs.collect::<Vec<Access>>()))
                         {
                             for acc in accesses {
-                                off += 1;
-                                assert!(!self
-                                    .events
-                                    .contains_key(&(future + Duration::from_nanos(off))));
-                                self.events.insert(
-                                    future + Duration::from_nanos(off),
-                                    Event::Submit(acc, Issuer::Application),
-                                );
+                                self.insert_event(future, Event::Submit(acc, Issuer::Application));
                             }
                         }
                     }
