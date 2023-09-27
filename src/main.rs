@@ -228,6 +228,10 @@ pub struct DeviceState {
     total: usize,
     reserved_until: SystemTime,
     queue: VecDeque<Access>,
+    // Metrics
+    max_q: Duration,
+    total_q: Duration,
+    total_req: usize,
 }
 
 pub struct StorageStack<S, P> {
@@ -253,25 +257,53 @@ impl<S, P> StorageStack<S, P> {
         now: SystemTime,
         access: Access,
         issuer: Issuer,
-    ) -> Result<(SystemTime, Event), StorageError> {
+    ) -> Result<Box<dyn Iterator<Item = (SystemTime, Event)>>, StorageError> {
         // Check if blocks already contained in the cache
-        match &access {
-            Access::Read(b) => {
+        match (&access, issuer.clone()) {
+            (Access::Read(b), _) => {
                 if let Some(dur) = self.cache.contains(b) {
-                    return Ok((
-                        now + dur,
-                        Event::Finished(now, access, Origin::FromCache, issuer),
+                    return Ok(Box::new(
+                        [(
+                            now + dur,
+                            Event::Finished(now, access, Origin::FromCache, issuer),
+                        )]
+                        .into_iter(),
                     ));
                 }
             }
-            Access::Write(b) => {
+            (Access::Write(b), i) if i != Issuer::Cache => {
                 if let Some(_) = self.cache.contains(b) {
-                    return Ok((
-                        now + self.cache.write(),
-                        Event::Finished(now, access, Origin::FromCache, issuer),
+                    return Ok(Box::new(
+                        [(
+                            now + self.cache.write(),
+                            Event::Finished(now, access, Origin::FromCache, issuer),
+                        )]
+                        .into_iter(),
                     ));
+                } else {
+                    // Use the cache as a write-back buffer
+                    let evicted = self.cache.insert(*b);
+                    if self.cache.contains(b).is_some() {
+                        return Ok(Box::new(
+                            [evicted]
+                                .into_iter()
+                                .filter_map(move |bl| {
+                                    bl.map(|blo| {
+                                        (now, Event::Submit(Access::Write(blo), Issuer::Cache))
+                                    })
+                                })
+                                .chain(
+                                    [(
+                                        now + self.cache.write(),
+                                        Event::Finished(now, access, Origin::FromCache, issuer),
+                                    )]
+                                    .into_iter(),
+                                ),
+                        ));
+                    }
                 }
             }
+            _ => {}
         }
 
         let dev = self
@@ -292,10 +324,16 @@ impl<S, P> StorageStack<S, P> {
             };
         dev_stats.queue.push_back(access.clone());
         dev_stats.reserved_until = until;
+        dev_stats.total_req += 1;
+        dev_stats.total_q += until.duration_since(now).unwrap();
+        dev_stats.max_q = dev_stats.max_q.max(until.duration_since(now).unwrap());
 
-        Ok((
-            until,
-            Event::Finished(now, access, Origin::FromDisk(dev.clone()), issuer),
+        Ok(Box::new(
+            [(
+                until,
+                Event::Finished(now, access, Origin::FromDisk(dev.clone()), issuer),
+            )]
+            .into_iter(),
         ))
     }
 
@@ -329,7 +367,7 @@ pub enum Event {
     // PlacementPolicy,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Issuer {
     Application,
     Cache,
@@ -410,19 +448,21 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
             self.now = then;
             match event {
                 Event::Submit(access, issr) => {
-                    let (then, ev) = self.stack.submit(self.now, access, issr)?;
-                    self.insert_event(then, ev);
+                    for (then, ev) in self.stack.submit(self.now, access, issr)? {
+                        self.insert_event(then, ev);
+                    }
                 }
                 Event::Finished(when_issued, access, device, issr) => {
                     self.stack.finish(&device);
                     if access.is_read() && self.stack.cache.contains(access.block()).is_none() {
                         if let Some(evicted) = self.stack.cache.insert(access.block().to_owned()) {
-                            let (then, ev) = self.stack.submit(
+                            for (then, ev) in self.stack.submit(
                                 self.now,
                                 Access::Write(evicted),
                                 Issuer::Cache,
-                            )?;
-                            self.insert_event(then, ev);
+                            )? {
+                                self.insert_event(then, ev);
+                            }
                         };
                     }
                     if let Issuer::Application = &issr {
@@ -443,11 +483,11 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
         // Clear cache
         println!("Application finished");
         for (off, block) in self.stack.cache.clear().enumerate() {
-            if let Ok((then, ev)) = self.stack.submit(
+            for (then, ev) in self.stack.submit(
                 self.now + Duration::from_nanos(off as u64),
                 Access::Write(block),
                 Issuer::Cache,
-            ) {
+            )? {
                 self.events.insert(then, ev);
             }
         }
@@ -463,6 +503,19 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
                 .unwrap()
                 .as_secs_f64()
         );
+
+        println!("Device stats:");
+        for (id, dev) in self.stack.devices.iter() {
+            println!(
+                "\t{id}:
+\t\tTotal requests: {}
+\t\tAverage latency: {}us
+\t\tMaximum latency: {}us",
+                dev.total_req,
+                dev.total_q.as_micros() / dev.total_req as u128,
+                dev.max_q.as_micros()
+            )
+        }
         Ok(())
     }
 }

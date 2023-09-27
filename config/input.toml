@@ -2,14 +2,14 @@
 
 [app.Zipf]
 # The ratio between read & write operations.
-# 0.0 - Only read
-# 1.0 - Only write
-rw = 0.1
+# 0.0 - Only write
+# 1.0 - Only read
+rw = 0.9
 # Theta for Zipfian Distribution
 theta = 0.99
 # Total number of blocks which are present in the storage stack.
-size = 4096
-batch = 256
+size = 11000
+batch = 512
 # How many batches are submitted to the stack.
 iteration = 1000
 seed = 54321
@@ -22,7 +22,7 @@ device = "DRAM"
 # Which devices will be used.
 [devices]
 
-[devices.MyIdentifier]
+[devices.optane]
 kind = "Intel_Optane_PMem_100"
 # Total size of device in number of blocks.
 capacity = 123

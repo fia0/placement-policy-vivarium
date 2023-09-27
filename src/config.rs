@@ -29,6 +29,9 @@ impl Config {
                         total: dev.capacity,
                         reserved_until: std::time::UNIX_EPOCH,
                         queue: VecDeque::new(),
+                        total_q: std::time::Duration::ZERO,
+                        total_req: 0,
+                        max_q: std::time::Duration::ZERO,
                     },
                 )
             })
