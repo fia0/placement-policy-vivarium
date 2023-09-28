@@ -21,38 +21,21 @@ use std::{
 };
 
 use application::{Application, ZipfApp};
-use cache::Cache;
+use cache::{Cache, CacheLogic};
 use clap::{Parser, Subcommand};
 use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use serde::Deserialize;
+use storage_stack::{StorageError, StorageStack};
 use strum::{EnumIter, IntoEnumIterator};
 use thiserror::Error;
 use zipf::ZipfDistribution;
 
-use crate::config::App;
+use crate::{cache::CacheMsg, config::App, storage_stack::Device};
 
 mod application;
 mod cache;
 mod config;
-
-#[allow(non_camel_case_types)]
-#[derive(Deserialize, Debug, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, EnumIter)]
-#[repr(u8)]
-pub enum Device {
-    // 6 dimms
-    Intel_Optane_PMem_100 = 0,
-    Intel_Optane_SSD_DC_P4800X = 1,
-    Samsung_983_ZET = 2,
-    Micron_9100_MAX = 3,
-    Western_Digital_WD5000AAKS = 4,
-    DRAM = 5,
-}
-
-impl Default for Device {
-    fn default() -> Self {
-        Self::DRAM
-    }
-}
+mod storage_stack;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct Block(usize);
@@ -127,73 +110,6 @@ impl<'a, R: Rng> Iterator for RandomAccessSequence<'a, R> {
     }
 }
 
-const BLOCK_SIZE_IN_MB: usize = 4;
-
-impl Device {
-    // All these numbers are approximations!  Numbers taken from peak
-    // performance over multiple queue depths, real results are likely to be
-    // worse.
-    fn read(&self) -> Duration {
-        match self {
-            // 30 GiB/s peak
-            Device::Intel_Optane_PMem_100 => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (30f32 * 1024f32))
-            }
-            // 2.5 GiB/s peak
-            Device::Intel_Optane_SSD_DC_P4800X => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2517f32)
-            }
-            Device::Samsung_983_ZET => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 3130f32),
-            Device::Micron_9100_MAX => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2903f32),
-            Device::Western_Digital_WD5000AAKS => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 94f32)
-            }
-            Device::DRAM => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32)),
-        }
-    }
-
-    fn write(&self) -> Duration {
-        match self {
-            Device::Intel_Optane_PMem_100 => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (16f32 * 1024f32))
-            }
-            Device::Intel_Optane_SSD_DC_P4800X => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2278f32)
-            }
-            Device::Samsung_983_ZET => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 576f32),
-            Device::Micron_9100_MAX => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 1408f32),
-            Device::Western_Digital_WD5000AAKS => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 38.2f32)
-            }
-            Device::DRAM => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32)),
-        }
-    }
-
-    // /// Number of blocks a single device can at maximum hold.
-    // fn capacity(&self) -> usize {
-    //     match self {
-    //         // 1 TB max assumed (more is possible i know)
-    //         //                    TB   GB     MB
-    //         Device::OptanePMem => 1 * 1024 * 1024 / BLOCK_SIZE_IN_MB,
-    //         // 1.6 TB max
-    //         //                    GB     MB
-    //         Device::OptaneSSD => 1600 * 1000 / BLOCK_SIZE_IN_MB,
-    //         // 3.2 TB max
-    //         //                      GB     MB
-    //         Device::SamsungZSSD => 3200 * 1000 / BLOCK_SIZE_IN_MB,
-    //         // 30.72 TB max
-    //         //                      GB       MB
-    //         Device::MicronTLCSSD => 30720 * 1000 / BLOCK_SIZE_IN_MB,
-    //         // 30 TB max assumed (there is higher)
-    //         //                    TB    GB     MB
-    //         Device::GenericHDD => 30 * 1024 * 1024 / BLOCK_SIZE_IN_MB,
-    //         // 32 GB max (set limitation due to impl on client)
-    //         //              GB   MB
-    //         Device::DRAM => 32 * 1024 / BLOCK_SIZE_IN_MB,
-    //     }
-    // }
-}
-
 pub trait Policy {
     fn new() -> Self;
     fn update(&mut self, accesses: Vec<Access>) -> State;
@@ -220,163 +136,20 @@ pub struct BlockState {
     replicated: Option<Device>,
 }
 
-pub struct DeviceState {
-    kind: Device,
-    // Number of blocks currently used.
-    free: usize,
-    // Absolute number of blocks which can be stored.
-    total: usize,
-    reserved_until: SystemTime,
-    queue: VecDeque<Access>,
-    // Metrics
-    max_q: Duration,
-    total_q: Duration,
-    total_req: usize,
-}
+// /// An event which is noted to happen sometime in the future.
+// #[derive(Debug)]
+// pub enum Event {
+//     Submit(Access, Issuer),
+//     Finished(SystemTime, Access, Origin, Issuer),
+//     // // Call the placement policy once and reinject the new start time.
+//     // PlacementPolicy,
+// }
 
-pub struct StorageStack<S, P> {
-    blocks: HashMap<Block, String>,
-    devices: HashMap<String, DeviceState>,
-    cache: Box<dyn Cache>,
-    state: S,
-    policy: P,
-}
-
-#[derive(Error, Debug)]
-pub enum StorageError {
-    #[error("Could not find block {block:?}")]
-    InvalidBlock { block: Block },
-    #[error("Could not find device {id}")]
-    InvalidDevice { id: String },
-}
-
-impl<S, P> StorageStack<S, P> {
-    /// Act on specified block and return subsequent event.
-    fn submit(
-        &mut self,
-        now: SystemTime,
-        access: Access,
-        issuer: Issuer,
-    ) -> Result<Box<dyn Iterator<Item = (SystemTime, Event)>>, StorageError> {
-        // Check if blocks already contained in the cache
-        match (&access, issuer.clone()) {
-            (Access::Read(b), _) => {
-                if let Some(dur) = self.cache.contains(b) {
-                    return Ok(Box::new(
-                        [(
-                            now + dur,
-                            Event::Finished(now, access, Origin::FromCache, issuer),
-                        )]
-                        .into_iter(),
-                    ));
-                }
-            }
-            (Access::Write(b), i) if i != Issuer::Cache => {
-                if let Some(_) = self.cache.contains(b) {
-                    return Ok(Box::new(
-                        [(
-                            now + self.cache.write(),
-                            Event::Finished(now, access, Origin::FromCache, issuer),
-                        )]
-                        .into_iter(),
-                    ));
-                } else {
-                    // Use the cache as a write-back buffer
-                    let evicted = self.cache.insert(*b);
-                    if self.cache.contains(b).is_some() {
-                        return Ok(Box::new(
-                            [evicted]
-                                .into_iter()
-                                .filter_map(move |bl| {
-                                    bl.map(|blo| {
-                                        (now, Event::Submit(Access::Write(blo), Issuer::Cache))
-                                    })
-                                })
-                                .chain(
-                                    [(
-                                        now + self.cache.write(),
-                                        Event::Finished(now, access, Origin::FromCache, issuer),
-                                    )]
-                                    .into_iter(),
-                                ),
-                        ));
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        let dev = self
-            .blocks
-            .get(access.block())
-            .ok_or(StorageError::InvalidBlock {
-                block: access.block().clone(),
-            })?;
-        let dev_stats = self
-            .devices
-            .get_mut(dev)
-            .ok_or(StorageError::InvalidDevice { id: dev.clone() })?;
-
-        let until = dev_stats.reserved_until.max(now)
-            + match access {
-                Access::Read(_) => dev_stats.kind.read(),
-                Access::Write(_) => dev_stats.kind.write(),
-            };
-        dev_stats.queue.push_back(access.clone());
-        dev_stats.reserved_until = until;
-        dev_stats.total_req += 1;
-        dev_stats.total_q += until.duration_since(now).unwrap();
-        dev_stats.max_q = dev_stats.max_q.max(until.duration_since(now).unwrap());
-
-        Ok(Box::new(
-            [(
-                until,
-                Event::Finished(now, access, Origin::FromDisk(dev.clone()), issuer),
-            )]
-            .into_iter(),
-        ))
-    }
-
-    /// An operation has finished and can be removed from the device queue.
-    fn finish(&mut self, dev: &Origin) {
-        match dev {
-            Origin::FromCache => {}
-            Origin::FromDisk(dev) => {
-                self.devices.get_mut(dev).unwrap().queue.pop_front();
-            }
-        }
-    }
-
-    fn insert(&mut self, block: Block, device: String) -> Option<Block> {
-        let dev = self.devices.get_mut(&device).unwrap();
-        if dev.free > 0 {
-            dev.free = dev.free.saturating_sub(1);
-            self.blocks.insert(block, device);
-            return None;
-        }
-        Some(block)
-    }
-}
-
-/// An event which is noted to happen sometime in the future.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Event {
-    Submit(Access, Issuer),
-    Finished(SystemTime, Access, Origin, Issuer),
-    // // Call the placement policy once and reinject the new start time.
-    // PlacementPolicy,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Issuer {
-    Application,
-    Cache,
-}
-
-#[derive(Debug)]
-pub enum Origin {
-    FromCache,
-    FromDisk(String),
+    Cache(CacheMsg),
+    Storage(Access),
+    Application(Block),
 }
 
 /// Core unit of the simulation.
@@ -441,55 +214,31 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
             .collect::<Vec<Access>>()
             .into_iter()
         {
-            self.insert_event(self.now, Event::Submit(access, Issuer::Application));
+            self.insert_event(
+                self.now,
+                match access {
+                    Access::Read(b) => Event::Cache(CacheMsg::Get(b)),
+                    Access::Write(b) => Event::Cache(CacheMsg::Put(b)),
+                },
+            )
         }
         while let Some((then, event)) = self.events.pop_first() {
             // Step forward to the current timestamp
             self.now = then;
-            match event {
-                Event::Submit(access, issr) => {
-                    for (then, ev) in self.stack.submit(self.now, access, issr)? {
-                        self.insert_event(then, ev);
-                    }
-                }
-                Event::Finished(when_issued, access, device, issr) => {
-                    self.stack.finish(&device);
-                    if access.is_read() && self.stack.cache.contains(access.block()).is_none() {
-                        if let Some(evicted) = self.stack.cache.insert(access.block().to_owned()) {
-                            for (then, ev) in self.stack.submit(
-                                self.now,
-                                Access::Write(evicted),
-                                Issuer::Cache,
-                            )? {
-                                self.insert_event(then, ev);
-                            }
-                        };
-                    }
-                    if let Issuer::Application = &issr {
-                        if let Some((future, accesses)) = self
-                            .application
-                            .done(access, when_issued, self.now)
-                            .map(|(future, accs)| (future, accs.collect::<Vec<Access>>()))
-                        {
-                            for acc in accesses {
-                                self.insert_event(future, Event::Submit(acc, Issuer::Application));
-                            }
-                        }
-                    }
-                }
+            let events = match event {
+                Event::Cache(msg) => self.stack.cache.process(msg, self.now),
+                Event::Storage(msg) => self.stack.process(msg, self.now)?,
+                Event::Application(_) => todo!(),
+            };
+            for (pit, ev) in events.collect::<Vec<_>>() {
+                self.insert_event(pit, ev);
             }
         }
 
         // Clear cache
         println!("Application finished");
-        for (off, block) in self.stack.cache.clear().enumerate() {
-            for (then, ev) in self.stack.submit(
-                self.now + Duration::from_nanos(off as u64),
-                Access::Write(block),
-                Issuer::Cache,
-            )? {
-                self.events.insert(then, ev);
-            }
+        for (then, ev) in self.stack.cache.clear(self.now) {
+            self.insert_event(then, ev);
         }
 
         if let Some((k, _v)) = self.events.last_key_value() {

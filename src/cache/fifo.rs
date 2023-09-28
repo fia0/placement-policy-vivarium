@@ -26,23 +26,15 @@ impl Fifo {
 }
 
 impl Cache for Fifo {
-    fn contains(&mut self, block: &Block) -> Option<Duration> {
+    fn get(&mut self, block: &Block) -> Option<Duration> {
         self.blocks.get(block).map(|_| self.on_device.read())
     }
 
-    fn insert(&mut self, block: Block) -> Option<Block> {
-        self.queue.push_front(block.clone());
-        self.blocks.insert(block);
-        if self.queue.len() > self.capacity {
-            if let Some(b) = self.queue.pop_back() {
-                self.blocks.remove(&b);
-                return Some(b);
-            }
+    fn put(&mut self, block: Block) -> Duration {
+        if !self.blocks.contains(&block) {
+            self.queue.push_front(block.clone());
+            self.blocks.insert(block);
         }
-        None
-    }
-
-    fn write(&self) -> Duration {
         self.on_device.write()
     }
 
@@ -51,5 +43,20 @@ impl Cache for Fifo {
         std::mem::swap(&mut self.blocks, &mut tmp);
         self.queue.clear();
         Box::new(tmp.into_iter())
+    }
+
+    fn evict(&mut self) -> Option<Block> {
+        self.queue.pop_back().map(|b| {
+            self.blocks.remove(&b);
+            b
+        })
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    fn len(&self) -> usize {
+        self.queue.len()
     }
 }

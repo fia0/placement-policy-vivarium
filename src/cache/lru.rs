@@ -20,7 +20,7 @@ impl Lru {
 }
 
 impl Cache for Lru {
-    fn contains(&mut self, block: &Block) -> Option<std::time::Duration> {
+    fn get(&mut self, block: &Block) -> Option<std::time::Duration> {
         if let Some(idx) = self
             .entries
             .iter()
@@ -36,19 +36,10 @@ impl Cache for Lru {
         }
     }
 
-    fn insert(&mut self, block: Block) -> Option<Block> {
-        if self.contains(&block).is_some() {
-            return None;
+    fn put(&mut self, block: Block) -> std::time::Duration {
+        if self.get(&block).is_none() {
+            self.entries.push_front(block);
         }
-        self.entries.push_front(block);
-        if self.entries.len() > self.capacity {
-            self.entries.pop_back()
-        } else {
-            None
-        }
-    }
-
-    fn write(&self) -> std::time::Duration {
         self.on_device.write()
     }
 
@@ -56,5 +47,17 @@ impl Cache for Lru {
         let mut tmp = VecDeque::new();
         std::mem::swap(&mut self.entries, &mut tmp);
         Box::new(tmp.into_iter())
+    }
+
+    fn evict(&mut self) -> Option<Block> {
+        self.entries.pop_back()
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
     }
 }

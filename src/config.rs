@@ -1,7 +1,7 @@
 use crate::{
     application::{Application, ZipfApp, ZipfConfig},
-    cache::{Cache, Fifo, Lru, Noop},
-    DeviceState,
+    cache::{Cache, CacheLogic, Fifo, Lru, Noop},
+    storage_stack::DeviceState,
 };
 
 use super::Device;
@@ -38,11 +38,11 @@ impl Config {
             .collect()
     }
 
-    pub fn cache(&self) -> Box<dyn Cache> {
-        match &self.cache {
+    pub fn cache(&self) -> CacheLogic {
+        CacheLogic::new(match &self.cache {
             Some(c) => c.build(),
             None => Box::new(Noop {}),
-        }
+        })
     }
 }
 
