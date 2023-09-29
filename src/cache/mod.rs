@@ -37,11 +37,12 @@ pub struct CacheLogic {
     in_eviction: HashSet<Block>,
     in_fetch: HashSet<Block>,
     cache: Box<dyn Cache>,
+    was_modified: HashSet<Block>,
     queue_eviction: VecDeque<CacheMsg>,
     queue_completion: VecDeque<CacheMsg>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum CacheMsg {
     Get(Block),
     Put(Block),
@@ -82,6 +83,7 @@ impl CacheLogic {
             cache,
             queue_eviction: Default::default(),
             queue_completion: Default::default(),
+            was_modified: Default::default(),
         }
     }
 
@@ -94,73 +96,8 @@ impl CacheLogic {
             CacheMsg::Get(block) => {
                 // Check if block is already cached
                 if let Some(dur) = self.cache.get(&block) {
-                    Box::new(
-                        [(now + dur, Event::Application(Access::Read(block)))]
-                            .into_iter()
-                            .chain(
-                                [self
-                                    .queue_eviction
-                                    .pop_front()
-                                    .map(|m| (now, Event::Cache(m)))]
-                                .into_iter()
-                                .filter_map(|e| e),
-                            ),
-                    )
-                } else {
-                    // If block is already being fetched only enqueue
-                    if self.in_fetch.contains(&block) {
-                        self.queue_completion.push_back(msg);
-                        return Box::new([].into_iter());
-                    }
-
-                    // If necessary evict entry
-                    if self.cache.len() + self.in_eviction.len() + self.in_fetch.len() + 1
-                        > self.cache.capacity()
-                    {
-                        self.queue_eviction.push_back(msg);
-                        if let Some(evicted) = self.cache.evict() {
-                            // evict entry and wait for completion
-                            self.in_eviction.insert(evicted);
-                            Box::new([(now, Event::Storage(Access::Write(evicted)))].into_iter())
-                        } else {
-                            if self.cache.capacity() == 0 {
-                                return Box::new(
-                                    [(now, Event::Storage(Access::Read(block)))].into_iter(),
-                                );
-                            }
-                            Box::new([].into_iter())
-                        }
-                    } else {
-                        // Fetch block from storage
-                        self.queue_completion.push_back(msg);
-                        self.in_fetch.insert(block);
-                        Box::new([(now, Event::Storage(Access::Read(block)))].into_iter())
-                    }
-                }
-            }
-            CacheMsg::Put(block) => {
-                // If necessary evict entry
-                if self.cache.len() + self.in_eviction.len() + self.in_fetch.len() + 1
-                    > self.cache.capacity()
-                {
-                    self.queue_eviction.push_back(msg);
-                    if let Some(evicted) = self.cache.evict() {
-                        // evict entry and wait for completion
-                        self.in_eviction.insert(evicted);
-                        Box::new([(now, Event::Storage(Access::Write(evicted)))].into_iter())
-                    } else {
-                        if self.cache.capacity() == 0 {
-                            return Box::new(
-                                [(now, Event::Storage(Access::Write(block)))].into_iter(),
-                            );
-                        }
-                        Box::new([].into_iter())
-                    }
-                } else {
-                    let dur = self.cache.put(block);
-
                     return Box::new(
-                        [(now + dur, Event::Application(Access::Write(block)))]
+                        [(now + dur, Event::Application(Access::Read(block)))]
                             .into_iter()
                             .chain(
                                 [self
@@ -172,6 +109,80 @@ impl CacheLogic {
                             ),
                     );
                 }
+                // If block is already being fetched only enqueue
+                if self.in_fetch.contains(&block) {
+                    self.queue_completion.push_back(msg);
+                    return Box::new([].into_iter());
+                }
+
+                // If necessary evict entry
+                if self.cache.len() + self.in_eviction.len() + self.in_fetch.len() + 1
+                    > self.cache.capacity()
+                {
+                    self.queue_eviction.push_back(msg.clone());
+                    if let Some(evicted) = self.cache.evict() {
+                        if self.was_modified.remove(&evicted) {
+                            // evict entry and wait for completion
+                            self.in_eviction.insert(evicted);
+                            return Box::new(
+                                [(now, Event::Storage(Access::Write(evicted)))].into_iter(),
+                            );
+                        } else {
+                            let _ = self.queue_eviction.pop_back();
+                        }
+                    } else {
+                        if self.cache.capacity() == 0 {
+                            return Box::new(
+                                [(now, Event::Storage(Access::Read(block)))].into_iter(),
+                            );
+                        }
+                        return Box::new([].into_iter());
+                    }
+                }
+                // Fetch block from storage
+                self.queue_completion.push_back(msg);
+                self.in_fetch.insert(block);
+                Box::new([(now, Event::Storage(Access::Read(block)))].into_iter())
+            }
+            CacheMsg::Put(block) => {
+                // If necessary evict entry
+                if self.cache.len() + self.in_eviction.len() + self.in_fetch.len() + 1
+                    > self.cache.capacity()
+                {
+                    self.queue_eviction.push_back(msg);
+                    if let Some(evicted) = self.cache.evict() {
+                        if self.was_modified.remove(&evicted) {
+                            // evict entry and wait for completion
+                            self.in_eviction.insert(evicted);
+                            return Box::new(
+                                [(now, Event::Storage(Access::Write(evicted)))].into_iter(),
+                            );
+                        } else {
+                            let _ = self.queue_eviction.pop_back();
+                        }
+                    } else {
+                        if self.cache.capacity() == 0 {
+                            return Box::new(
+                                [(now, Event::Storage(Access::Write(block)))].into_iter(),
+                            );
+                        }
+                        return Box::new([].into_iter());
+                    }
+                }
+                let dur = self.cache.put(block);
+                self.was_modified.insert(block);
+                Box::new(
+                    [(now + dur, Event::Application(Access::Write(block)))]
+                        .into_iter()
+                        .chain(
+                            [self
+                                .queue_eviction
+                                .pop_front()
+                                .map(|m| (now, Event::Cache(m)))]
+                            .into_iter()
+                            .filter_map(|e| e),
+                        ),
+                )
             }
             CacheMsg::ReadFinished(block) => {
                 if self.cache.capacity() == 0 {

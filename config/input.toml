@@ -4,7 +4,7 @@
 # The ratio between read & write operations.
 # 0.0 - Only write
 # 1.0 - Only read
-rw = 0.9
+rw = 0.1
 # Theta for Zipfian Distribution
 theta = 0.99
 # Total number of blocks which are present in the storage stack.
