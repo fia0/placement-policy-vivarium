@@ -3,11 +3,11 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{rngs::StdRng, SeedableRng};
 use serde::Deserialize;
 use zipf::ZipfDistribution;
 
-use crate::{Access, Block, RandomAccessSequence};
+use crate::{Access, Block, Event, RandomAccessSequence};
 
 use super::Application;
 
@@ -28,7 +28,7 @@ pub struct ZipfApp {
     size: usize,
     dist: ZipfDistribution,
     rng: StdRng,
-    current_reqs: usize,
+    current_reqs: HashMap<Access, (SystemTime, usize)>,
     batch: usize,
     rw: f64,
     write_latency: Vec<Duration>,
@@ -45,7 +45,7 @@ impl ZipfApp {
         Self {
             size: config.size,
             dist: ZipfDistribution::new(config.size, config.theta).unwrap(),
-            current_reqs: 0,
+            current_reqs: HashMap::new(),
             rng: StdRng::seed_from_u64(config.seed),
             rw: config.rw,
             batch: config.batch,
@@ -62,28 +62,47 @@ impl Application for ZipfApp {
         (1..=self.size).map(|num| Block(num))
     }
 
-    fn start(&mut self) -> impl Iterator<Item = Access> + '_ {
-        self.current_reqs += self.batch;
-        RandomAccessSequence::new(&mut self.rng, &mut self.dist, self.rw)
+    fn start(&mut self, now: SystemTime) -> Box<dyn Iterator<Item = (SystemTime, Event)> + '_> {
+        let evs = RandomAccessSequence::new(&mut self.rng, &mut self.dist, self.rw)
             .take(self.batch)
-            .into_iter()
+            .collect::<Vec<_>>();
+        for ev in evs.iter() {
+            match self.current_reqs.entry(ev.clone()) {
+                std::collections::hash_map::Entry::Occupied(mut o) => o.get_mut().1 += 1,
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert((now, 1));
+                }
+            }
+        }
+        Box::new(evs.into_iter().map(move |a| {
+            (
+                now,
+                match a {
+                    Access::Read(b) => Event::Cache(crate::cache::CacheMsg::Get(b)),
+                    Access::Write(b) => Event::Cache(crate::cache::CacheMsg::Put(b)),
+                },
+            )
+        }))
     }
 
     fn done(
         &mut self,
         access: Access,
-        when_issued: SystemTime,
         now: SystemTime,
-    ) -> Option<(SystemTime, impl Iterator<Item = Access> + '_)> {
-        self.current_reqs -= 1;
-
+    ) -> Box<dyn Iterator<Item = (SystemTime, Event)> + '_> {
+        let entry = self.current_reqs.get_mut(&access).unwrap();
+        let when_issued = entry.0;
+        entry.1 -= 1;
+        if entry.1 == 0 {
+            let _ = self.current_reqs.remove(&access);
+        }
         let lat = match access {
             Access::Read(_) => &mut self.read_latency,
             Access::Write(_) => &mut self.write_latency,
         };
         lat.push(now.duration_since(when_issued).expect("Negative Time"));
 
-        if self.current_reqs == 0 && self.cur_iteration < self.iteration {
+        if self.current_reqs.len() == 0 && self.cur_iteration < self.iteration {
             // END OF BATCH
             // TODO: Call Policy now, or do parallel messages (queue) to which a
             // policy can interject? Take oracle from Haura directly?
@@ -104,9 +123,9 @@ impl Application for ZipfApp {
             );
             self.cur_iteration += 1;
             // Immediately start the next batch.
-            Some((now, self.start()))
+            self.start(now)
         } else {
-            None
+            Box::new([].into_iter())
         }
     }
 }

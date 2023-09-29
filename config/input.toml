@@ -15,8 +15,8 @@ iteration = 1000
 seed = 54321
 
 [cache]
-algorithm = "Noop"
-capacity = 32
+algorithm = "Fifo"
+capacity = 8
 device = "DRAM"
 
 # Which devices will be used.

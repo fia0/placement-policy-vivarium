@@ -5,11 +5,11 @@ use super::Cache;
 pub struct Noop {}
 
 impl Cache for Noop {
-    fn get(&mut self, block: &crate::Block) -> Option<std::time::Duration> {
+    fn get(&mut self, _block: &crate::Block) -> Option<std::time::Duration> {
         None
     }
 
-    fn put(&mut self, block: crate::Block) -> std::time::Duration {
+    fn put(&mut self, _block: crate::Block) -> std::time::Duration {
         Duration::ZERO
     }
 

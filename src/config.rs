@@ -1,5 +1,5 @@
 use crate::{
-    application::{Application, ZipfApp, ZipfConfig},
+    application::{ZipfApp, ZipfConfig},
     cache::{Cache, CacheLogic, Fifo, Lru, Noop},
     storage_stack::DeviceState,
 };

@@ -14,19 +14,18 @@
 /// Things like SSD internal parallelization and device access patterns cannot
 /// be modelled.
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, HashMap},
     io::Read,
     path::PathBuf,
     time::{Duration, SystemTime},
 };
 
 use application::{Application, ZipfApp};
-use cache::{Cache, CacheLogic};
 use clap::{Parser, Subcommand};
 use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
-use serde::Deserialize;
+
 use storage_stack::{StorageError, StorageStack};
-use strum::{EnumIter, IntoEnumIterator};
+use strum::IntoEnumIterator;
 use thiserror::Error;
 use zipf::ZipfDistribution;
 
@@ -149,7 +148,7 @@ pub struct BlockState {
 pub enum Event {
     Cache(CacheMsg),
     Storage(Access),
-    Application(Block),
+    Application(Access),
 }
 
 /// Core unit of the simulation.
@@ -208,19 +207,13 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
     fn run(mut self) -> Result<(), SimError> {
         self.prepare();
         // Start the application
-        for access in self
+        for (time, ev) in self
             .application
-            .start()
-            .collect::<Vec<Access>>()
+            .start(self.now)
+            .collect::<Vec<_>>()
             .into_iter()
         {
-            self.insert_event(
-                self.now,
-                match access {
-                    Access::Read(b) => Event::Cache(CacheMsg::Get(b)),
-                    Access::Write(b) => Event::Cache(CacheMsg::Put(b)),
-                },
-            )
+            self.insert_event(time, ev)
         }
         while let Some((then, event)) = self.events.pop_first() {
             // Step forward to the current timestamp
@@ -228,7 +221,7 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
             let events = match event {
                 Event::Cache(msg) => self.stack.cache.process(msg, self.now),
                 Event::Storage(msg) => self.stack.process(msg, self.now)?,
-                Event::Application(_) => todo!(),
+                Event::Application(access) => self.application.done(access, self.now),
             };
             for (pit, ev) in events.collect::<Vec<_>>() {
                 self.insert_event(pit, ev);
@@ -261,7 +254,10 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
 \t\tAverage latency: {}us
 \t\tMaximum latency: {}us",
                 dev.total_req,
-                dev.total_q.as_micros() / dev.total_req as u128,
+                dev.total_q
+                    .as_micros()
+                    .checked_div(dev.total_req as u128)
+                    .unwrap_or(0),
                 dev.max_q.as_micros()
             )
         }

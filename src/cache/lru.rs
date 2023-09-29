@@ -1,5 +1,5 @@
 use crate::{Block, Device};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{VecDeque};
 
 use super::Cache;
 
