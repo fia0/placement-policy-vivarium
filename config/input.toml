@@ -8,29 +8,37 @@ rw = 0.1
 # Theta for Zipfian Distribution
 theta = 0.99
 # Total number of blocks which are present in the storage stack.
-size = 11000
-batch = 512
+size = 1412096
+batch = 16830
 # How many batches are submitted to the stack.
 iteration = 1000
 seed = 54321
 
 [cache]
-algorithm = "Fifo"
-capacity = 8
+algorithm = "Lru"
+capacity = 128
 device = "DRAM"
 
 # Which devices will be used.
 [devices]
 
+# 460 GiB Optane
 [devices.optane]
 kind = "Intel_Optane_PMem_100"
 # Total size of device in number of blocks.
-capacity = 123
+capacity = 117760
 
+# 1 TiB Samsung
 [devices.fast_ssd]
 kind = "Samsung_983_ZET"
-capacity = 1234
+capacity = 245760
 
+# 4 TiB Micron
 [devices.large_ssd]
 kind = "Micron_9100_MAX"
-capacity = 12345
+capacity = 1048576
+
+
+# [devices.spinny_boy]
+# kind = "Western_Digital_WD5000AAKS"
+# capacity = 123456

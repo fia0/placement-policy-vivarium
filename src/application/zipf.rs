@@ -74,9 +74,9 @@ impl Application for ZipfApp {
                 }
             }
         }
-        Box::new(evs.into_iter().map(move |a| {
+        Box::new(evs.into_iter().enumerate().map(move |(off, a)| {
             (
-                now,
+                now + Duration::from_nanos(off as u64),
                 match a {
                     Access::Read(b) => Event::Cache(crate::cache::CacheMsg::Get(b)),
                     Access::Write(b) => Event::Cache(crate::cache::CacheMsg::Put(b)),

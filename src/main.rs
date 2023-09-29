@@ -186,21 +186,18 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
 
     /// Insert events into the event queue and avoid any kind of collision.
     fn insert_event(&mut self, pit: SystemTime, ev: Event) {
-        if !self.events.contains_key(&pit) {
-            self.events.insert(pit, ev);
-        } else {
-            let mut off = 0;
-            loop {
-                match self.events.entry(pit + Duration::from_nanos(off)) {
-                    std::collections::btree_map::Entry::Vacant(e) => {
-                        e.insert(ev);
-                        break;
-                    }
-                    std::collections::btree_map::Entry::Occupied(_) => {}
-                }
-                off += 1;
+        let range = self.events.range(pit..);
+        // Avoid collision
+        let mut off = 0;
+        for p in range {
+            let diff = p.0.duration_since(pit).unwrap().as_nanos();
+            if off < diff {
+                break;
             }
+            off += 1;
         }
+        self.events
+            .insert(pit + Duration::from_nanos(off as u64), ev);
     }
 
     /// Execute the main event digestion.
