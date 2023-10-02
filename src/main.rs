@@ -20,7 +20,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use application::{Application, ZipfApp};
+use application::Application;
 use clap::{Parser, Subcommand};
 use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 
@@ -301,6 +301,14 @@ pub enum Commands {
     Sim {
         #[arg(id = "CONFIG_PATH")]
         config: PathBuf,
+        #[arg(
+            short,
+            long,
+            long_help = "Specify a directory to write results to. If not specified configuration option will be used otherwise default value. Created if not present.",
+            id = "RESULT_PATH",
+            default_value = "./results"
+        )]
+        results: PathBuf,
     },
 }
 
@@ -327,11 +335,33 @@ fn main() -> Result<(), SimError> {
             }
             Ok(())
         }
-        Commands::Sim { config } => {
+        Commands::Sim {
+            config,
+            mut results,
+        } => {
             let mut file = std::fs::OpenOptions::new().read(true).open(config)?;
             let mut content = String::new();
             file.read_to_string(&mut content)?;
             let config: config::Config = toml::from_str(&content)?;
+
+            // append suffix to avoid overwriting data
+            let mut cur = 0;
+            let mut last = results
+                .file_name()
+                .unwrap_or_else(|| &std::ffi::OsStr::new("results"))
+                .to_str()
+                .unwrap_or_else(|| "str")
+                .to_string();
+            loop {
+                if !results.exists() {
+                    break;
+                }
+                let mut n = last.clone();
+                n.push_str(&format!("_{}", cur));
+                results.set_file_name(n);
+                cur += 1;
+            }
+            std::fs::create_dir_all(results).unwrap();
 
             let sim: PolicySimulator<(), ()> = PolicySimulator {
                 stack: StorageStack {
@@ -344,7 +374,7 @@ fn main() -> Result<(), SimError> {
                 application: config.app.build(),
                 now: std::time::UNIX_EPOCH,
                 events: BTreeMap::new(),
-                rng: rand::rngs::StdRng::seed_from_u64(12345),
+                rng: rand::rngs::StdRng::seed_from_u64(1234),
             };
             sim.run()
         }
