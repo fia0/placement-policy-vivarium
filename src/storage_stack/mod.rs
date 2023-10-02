@@ -118,6 +118,7 @@ pub struct DeviceState {
     pub max_q: Duration,
     pub total_q: Duration,
     pub total_req: usize,
+    pub idle_time: Duration,
 }
 
 #[derive(Error, Debug)]
@@ -152,6 +153,9 @@ impl<S, P> StorageStack<S, P> {
                 Access::Write(_) => dev_stats.kind.write(),
             };
         dev_stats.queue.push_back(access.clone());
+        if dev_stats.reserved_until < now {
+            dev_stats.idle_time += now.duration_since(dev_stats.reserved_until).unwrap();
+        }
         dev_stats.reserved_until = until;
         dev_stats.total_req += 1;
         dev_stats.total_q += until.duration_since(now).unwrap();

@@ -58,8 +58,8 @@ impl ZipfApp {
 }
 
 impl Application for ZipfApp {
-    fn init(&self) -> impl Iterator<Item = Block> {
-        (1..=self.size).map(|num| Block(num))
+    fn init(&self) -> Box<dyn Iterator<Item = Block>> {
+        Box::new((1..=self.size).map(|num| Block(num)))
     }
 
     fn start(&mut self, now: SystemTime) -> Box<dyn Iterator<Item = (SystemTime, Event)> + '_> {

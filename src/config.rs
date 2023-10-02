@@ -1,5 +1,5 @@
 use crate::{
-    application::{ZipfApp, ZipfConfig},
+    application::{Application, ZipfApp, ZipfConfig},
     cache::{Cache, CacheLogic, Fifo, Lru, Noop},
     storage_stack::DeviceState,
 };
@@ -32,6 +32,7 @@ impl Config {
                         total_q: std::time::Duration::ZERO,
                         total_req: 0,
                         max_q: std::time::Duration::ZERO,
+                        idle_time: std::time::Duration::ZERO,
                     },
                 )
             })
@@ -53,9 +54,9 @@ pub enum App {
 }
 
 impl App {
-    pub fn build(&self) -> ZipfApp {
+    pub fn build(&self) -> Box<dyn Application> {
         match self {
-            App::Zipf(config) => ZipfApp::new(config),
+            App::Zipf(config) => Box::new(ZipfApp::new(config)),
         }
     }
 }

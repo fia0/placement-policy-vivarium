@@ -152,16 +152,16 @@ pub enum Event {
 }
 
 /// Core unit of the simulation.
-pub struct PolicySimulator<S, P, A: Application> {
+pub struct PolicySimulator<S, P> {
     stack: StorageStack<S, P>,
-    application: A,
+    application: Box<dyn Application>,
     now: SystemTime,
     // Ordered Map, system time is priority.
     events: BTreeMap<SystemTime, Event>,
     rng: StdRng,
 }
 
-impl<S, P, A: Application> PolicySimulator<S, P, A> {
+impl<S, P> PolicySimulator<S, P> {
     /// Distribute initial blocks in the storage stack. This is done entirely
     /// randomly with a fixed seed.
     fn prepare(&mut self) {
@@ -249,13 +249,15 @@ impl<S, P, A: Application> PolicySimulator<S, P, A> {
                 "\t{id}:
 \t\tTotal requests: {}
 \t\tAverage latency: {}us
-\t\tMaximum latency: {}us",
+\t\tMaximum latency: {}us,
+\t\tIdle time: {}us",
                 dev.total_req,
                 dev.total_q
                     .as_micros()
                     .checked_div(dev.total_req as u128)
                     .unwrap_or(0),
-                dev.max_q.as_micros()
+                dev.max_q.as_micros(),
+                dev.idle_time.as_micros()
             )
         }
         Ok(())
@@ -331,7 +333,7 @@ fn main() -> Result<(), SimError> {
             file.read_to_string(&mut content)?;
             let config: config::Config = toml::from_str(&content)?;
 
-            let sim: PolicySimulator<(), (), ZipfApp> = PolicySimulator {
+            let sim: PolicySimulator<(), ()> = PolicySimulator {
                 stack: StorageStack {
                     blocks: [].into(),
                     devices: config.devices(),
