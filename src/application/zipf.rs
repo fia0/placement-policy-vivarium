@@ -3,11 +3,15 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use crossbeam::channel::Sender;
 use rand::{rngs::StdRng, SeedableRng};
 use serde::Deserialize;
 use zipf::ZipfDistribution;
 
-use crate::{Access, Block, Event, RandomAccessSequence};
+use crate::{
+    result_csv::{OpsInfo, ResMsg},
+    Access, Block, Event, RandomAccessSequence,
+};
 
 use super::Application;
 
@@ -89,6 +93,7 @@ impl Application for ZipfApp {
         &mut self,
         access: Access,
         now: SystemTime,
+        tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (SystemTime, Event)> + '_> {
         let entry = self.current_reqs.get_mut(&access).unwrap();
         let when_issued = entry.0;
@@ -106,25 +111,38 @@ impl Application for ZipfApp {
             // END OF BATCH
             // TODO: Call Policy now, or do parallel messages (queue) to which a
             // policy can interject? Take oracle from Haura directly?
-            // FIXME: Use propoer statistics, this is more of debug info
-            let batch_writes = self.write_latency.iter().rev().take(self.batch);
-            println!(
-                "({}) Write: Average {}us, Max {}us",
-                self.cur_iteration,
-                batch_writes.clone().map(|d| d.as_micros()).sum::<u128>() / self.batch as u128,
-                batch_writes.map(|d| d.as_micros()).max().unwrap_or(0)
-            );
-            let batch_reads = self.read_latency.iter().rev().take(self.batch);
-            println!(
-                "({}) Read: Average {}us, Max {}us",
-                self.cur_iteration,
-                batch_reads.clone().map(|d| d.as_micros()).sum::<u128>() / self.batch as u128,
-                batch_reads.map(|d| d.as_micros()).max().unwrap_or(0)
-            );
+            let mut writes = Vec::with_capacity(self.batch);
+            std::mem::swap(&mut self.write_latency, &mut writes);
+            let mut reads = Vec::with_capacity(self.batch);
+            std::mem::swap(&mut self.read_latency, &mut reads);
+            tx.send(ResMsg::Application {
+                writes: OpsInfo { all: writes },
+                reads: OpsInfo { all: reads },
+            })
+            .unwrap();
+            // println!(
+            //     "({}) Write: Average {}us, Max {}us",
+            //     self.cur_iteration,
+            //     batch_writes.clone().map(|d| d.as_micros()).sum::<u128>() / self.batch as u128,
+            //     batch_writes.map(|d| d.as_micros()).max().unwrap_or(0)
+            // );
+            // println!(
+            //     "({}) Read: Average {}us, Max {}us",
+            //     self.cur_iteration,
+            //     batch_reads.clone().map(|d| d.as_micros()).sum::<u128>() / self.batch as u128,
+            //     batch_reads.map(|d| d.as_micros()).max().unwrap_or(0)
+            // );
             self.cur_iteration += 1;
+            // print!(".");
+            use std::io::Write;
+            write!(std::io::stdout(), ".").unwrap();
+            std::io::stdout().flush();
             // Immediately start the next batch.
             self.start(now)
         } else {
+            if self.current_reqs.len() == 0 {
+                println!("Application finished.");
+            }
             Box::new([].into_iter())
         }
     }

@@ -1,7 +1,8 @@
-use crate::{Access, Block, Event};
+use crate::{result_csv::ResMsg, Access, Block, Event};
 use std::time::SystemTime;
 
 mod zipf;
+use crossbeam::channel::Sender;
 pub use zipf::{ZipfApp, ZipfConfig};
 
 /// An actor which issues and waits for accesses.
@@ -15,5 +16,6 @@ pub trait Application {
         &mut self,
         access: Access,
         now: SystemTime,
+        tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (SystemTime, Event)> + '_>;
 }

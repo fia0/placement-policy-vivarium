@@ -22,8 +22,10 @@ use std::{
 
 use application::Application;
 use clap::{Parser, Subcommand};
+use crossbeam::channel::Sender;
 use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 
+use result_csv::{ResMsg, ResultCollector};
 use storage_stack::{StorageError, StorageStack};
 use strum::IntoEnumIterator;
 use thiserror::Error;
@@ -34,6 +36,7 @@ use crate::{cache::CacheMsg, config::App, storage_stack::Device};
 mod application;
 mod cache;
 mod config;
+mod result_csv;
 mod storage_stack;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -159,6 +162,10 @@ pub struct PolicySimulator<S, P> {
     // Ordered Map, system time is priority.
     events: BTreeMap<SystemTime, Event>,
     rng: StdRng,
+    results_td: (
+        std::thread::JoinHandle<Result<(), std::io::Error>>,
+        Sender<ResMsg>,
+    ),
 }
 
 impl<S, P> PolicySimulator<S, P> {
@@ -218,7 +225,10 @@ impl<S, P> PolicySimulator<S, P> {
             let events = match event {
                 Event::Cache(msg) => self.stack.cache.process(msg, self.now),
                 Event::Storage(msg) => self.stack.process(msg, self.now)?,
-                Event::Application(access) => self.application.done(access, self.now),
+                Event::Application(access) => {
+                    self.application
+                        .done(access, self.now, &mut self.results_td.1)
+                }
             };
             for (pit, ev) in events.collect::<Vec<_>>() {
                 self.insert_event(pit, ev);
@@ -226,7 +236,6 @@ impl<S, P> PolicySimulator<S, P> {
         }
 
         // Clear cache
-        println!("Application finished");
         for (then, ev) in self.stack.cache.clear(self.now) {
             self.insert_event(then, ev);
         }
@@ -260,6 +269,10 @@ impl<S, P> PolicySimulator<S, P> {
                 dev.idle_time.as_micros()
             )
         }
+
+        self.results_td.1.send(ResMsg::Done).unwrap();
+        self.results_td.0.join().unwrap()?;
+
         Ok(())
     }
 }
@@ -301,14 +314,6 @@ pub enum Commands {
     Sim {
         #[arg(id = "CONFIG_PATH")]
         config: PathBuf,
-        #[arg(
-            short,
-            long,
-            long_help = "Specify a directory to write results to. If not specified configuration option will be used otherwise default value. Created if not present.",
-            id = "RESULT_PATH",
-            default_value = "./results"
-        )]
-        results: PathBuf,
     },
 }
 
@@ -335,10 +340,7 @@ fn main() -> Result<(), SimError> {
             }
             Ok(())
         }
-        Commands::Sim {
-            config,
-            mut results,
-        } => {
+        Commands::Sim { config } => {
             let mut file = std::fs::OpenOptions::new().read(true).open(config)?;
             let mut content = String::new();
             file.read_to_string(&mut content)?;
@@ -346,6 +348,11 @@ fn main() -> Result<(), SimError> {
 
             // append suffix to avoid overwriting data
             let mut cur = 0;
+            let mut results = config
+                .results
+                .path
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("./results"));
             let mut last = results
                 .file_name()
                 .unwrap_or_else(|| &std::ffi::OsStr::new("results"))
@@ -361,7 +368,7 @@ fn main() -> Result<(), SimError> {
                 results.set_file_name(n);
                 cur += 1;
             }
-            std::fs::create_dir_all(results).unwrap();
+            std::fs::create_dir_all(&results).unwrap();
 
             let sim: PolicySimulator<(), ()> = PolicySimulator {
                 stack: StorageStack {
@@ -375,6 +382,8 @@ fn main() -> Result<(), SimError> {
                 now: std::time::UNIX_EPOCH,
                 events: BTreeMap::new(),
                 rng: rand::rngs::StdRng::seed_from_u64(1234),
+                results_td: result_csv::ResultCollector::new(results)
+                    .map(|(coll, tx)| (std::thread::spawn(|| coll.main()), tx))?,
             };
             sim.run()
         }

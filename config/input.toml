@@ -1,4 +1,5 @@
-[io]
+[results]
+path = "foobarbaz"
 
 [app.Zipf]
 # The ratio between read & write operations.
@@ -11,7 +12,7 @@ theta = 0.99
 size = 1412096
 batch = 16830
 # How many batches are submitted to the stack.
-iteration = 100
+iteration = 10
 seed = 54321
 
 [cache]

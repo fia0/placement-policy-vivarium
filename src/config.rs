@@ -11,9 +11,15 @@ use strum::EnumIter;
 
 #[derive(Deserialize)]
 pub struct Config {
+    pub results: Results,
     pub app: App,
     pub devices: HashMap<String, DeviceConfig>,
     pub cache: Option<CacheConfig>,
+}
+
+#[derive(Deserialize)]
+pub struct Results {
+    pub path: Option<std::path::PathBuf>,
 }
 
 impl Config {
