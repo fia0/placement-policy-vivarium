@@ -25,8 +25,8 @@ use clap::{Parser, Subcommand};
 use crossbeam::channel::Sender;
 use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 
-use result_csv::{ResMsg, ResultCollector};
-use storage_stack::{StorageError, StorageStack};
+use result_csv::ResMsg;
+use storage_stack::{StorageError, StorageMsg, StorageStack};
 use strum::IntoEnumIterator;
 use thiserror::Error;
 use zipf::ZipfDistribution;
@@ -150,7 +150,7 @@ pub struct BlockState {
 #[derive(Debug, PartialEq)]
 pub enum Event {
     Cache(CacheMsg),
-    Storage(Access),
+    Storage(StorageMsg),
     Application(Access),
 }
 
@@ -353,11 +353,11 @@ fn main() -> Result<(), SimError> {
                 .path
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("./results"));
-            let mut last = results
+            let last = results
                 .file_name()
                 .unwrap_or_else(|| &std::ffi::OsStr::new("results"))
                 .to_str()
-                .unwrap_or_else(|| "str")
+                .unwrap_or_else(|| "results")
                 .to_string();
             loop {
                 if !results.exists() {

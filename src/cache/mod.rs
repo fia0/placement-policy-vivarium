@@ -3,7 +3,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::Access;
+use crate::{storage_stack::StorageMsg, Access};
 
 /// This module contains a simple cache trait.
 /// Implementations for simple policies are provided.
@@ -127,14 +127,19 @@ impl CacheLogic {
                             // evict entry and wait for completion
                             self.in_eviction.insert(evicted);
                             return Box::new(
-                                [(now, Event::Storage(Access::Write(evicted)))].into_iter(),
+                                [(
+                                    now,
+                                    Event::Storage(StorageMsg::Init(Access::Write(evicted))),
+                                )]
+                                .into_iter(),
                             );
                         }
                     } else {
                         self.queue_eviction.push_back(msg.clone());
                         if self.cache.capacity() == 0 {
                             return Box::new(
-                                [(now, Event::Storage(Access::Read(block)))].into_iter(),
+                                [(now, Event::Storage(StorageMsg::Init(Access::Read(block))))]
+                                    .into_iter(),
                             );
                         }
                         return Box::new([].into_iter());
@@ -143,7 +148,7 @@ impl CacheLogic {
                 // Fetch block from storage
                 self.queue_completion.push_back(msg);
                 self.in_fetch.insert(block);
-                Box::new([(now, Event::Storage(Access::Read(block)))].into_iter())
+                Box::new([(now, Event::Storage(StorageMsg::Init(Access::Read(block))))].into_iter())
             }
             CacheMsg::Put(block) => {
                 // If necessary evict entry
@@ -156,14 +161,19 @@ impl CacheLogic {
                             // evict entry and wait for completion
                             self.in_eviction.insert(evicted);
                             return Box::new(
-                                [(now, Event::Storage(Access::Write(evicted)))].into_iter(),
+                                [(
+                                    now,
+                                    Event::Storage(StorageMsg::Init(Access::Write(evicted))),
+                                )]
+                                .into_iter(),
                             );
                         }
                     } else {
                         self.queue_eviction.push_back(msg);
                         if self.cache.capacity() == 0 {
                             return Box::new(
-                                [(now, Event::Storage(Access::Write(block)))].into_iter(),
+                                [(now, Event::Storage(StorageMsg::Init(Access::Write(block))))]
+                                    .into_iter(),
                             );
                         }
                         return Box::new([].into_iter());
@@ -210,7 +220,7 @@ impl CacheLogic {
         Box::new(
             self.cache
                 .clear()
-                .map(move |b| (now, Event::Storage(Access::Write(b)))),
+                .map(move |b| (now, Event::Storage(StorageMsg::Init(Access::Write(b))))),
         )
     }
 }

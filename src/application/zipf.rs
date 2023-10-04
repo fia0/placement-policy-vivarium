@@ -133,10 +133,11 @@ impl Application for ZipfApp {
             //     batch_reads.map(|d| d.as_micros()).max().unwrap_or(0)
             // );
             self.cur_iteration += 1;
-            // print!(".");
-            use std::io::Write;
-            write!(std::io::stdout(), ".").unwrap();
-            std::io::stdout().flush();
+            {
+                use std::io::Write;
+                write!(std::io::stdout(), ".").unwrap();
+                let _ = std::io::stdout().flush();
+            }
             // Immediately start the next batch.
             self.start(now)
         } else {
