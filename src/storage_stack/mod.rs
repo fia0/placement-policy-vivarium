@@ -169,20 +169,13 @@ impl<S, P> StorageStack<S, P> {
                 dev_stats.total_q += until.duration_since(now).unwrap();
                 dev_stats.max_q = dev_stats.max_q.max(until.duration_since(now).unwrap());
 
+                let msgs = [(until, Event::Storage(StorageMsg::Finish(access)))].into_iter();
                 match access {
                     Access::Read(b) => Ok(Box::new(
-                        [
-                            (until, Event::Cache(CacheMsg::ReadFinished(b))),
-                            (until, Event::Storage(StorageMsg::Finish(access))),
-                        ]
-                        .into_iter(),
+                        msgs.chain([(until, Event::Cache(CacheMsg::ReadFinished(b)))].into_iter()),
                     )),
                     Access::Write(b) => Ok(Box::new(
-                        [
-                            (until, Event::Cache(CacheMsg::WriteFinished(b))),
-                            (until, Event::Storage(StorageMsg::Finish(access))),
-                        ]
-                        .into_iter(),
+                        msgs.chain([(until, Event::Cache(CacheMsg::WriteFinished(b)))].into_iter()),
                     )),
                 }
             }

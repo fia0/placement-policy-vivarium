@@ -16,7 +16,7 @@ iteration = 10
 seed = 54321
 
 [cache]
-algorithm = "Lru"
+algorithm = "Fifo"
 capacity = 128
 device = "DRAM"
 
