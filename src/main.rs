@@ -244,34 +244,21 @@ impl<S, P> PolicySimulator<S, P> {
             self.now = *k;
         }
 
-        println!(
-            "Runtime: {}s",
-            self.now
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs_f64()
-        );
-
-        println!("Device stats:");
-        for (id, dev) in self.stack.devices.iter() {
-            println!(
-                "\t{id}:
-\t\tTotal requests: {}
-\t\tAverage latency: {}us
-\t\tMaximum latency: {}us,
-\t\tIdle time: {}us",
-                dev.total_req,
-                dev.total_q
-                    .as_micros()
-                    .checked_div(dev.total_req as u128)
-                    .unwrap_or(0),
-                dev.max_q.as_micros(),
-                dev.idle_time.as_micros()
-            )
+        {
+            let total_runtime = self.now.duration_since(std::time::UNIX_EPOCH).unwrap();
+            self.results_td
+                .1
+                .send(ResMsg::Simulator { total_runtime })
+                .unwrap();
+            let mut map = HashMap::new();
+            std::mem::swap(&mut self.stack.devices, &mut map);
+            self.results_td
+                .1
+                .send(ResMsg::Device { map, total_runtime })
+                .unwrap();
+            self.results_td.1.send(ResMsg::Done).unwrap();
+            self.results_td.0.join().unwrap()?;
         }
-
-        self.results_td.1.send(ResMsg::Done).unwrap();
-        self.results_td.0.join().unwrap()?;
 
         Ok(())
     }

@@ -1,5 +1,5 @@
 [results]
-path = "foobarbaz"
+path = "results"
 
 [app.Zipf]
 # The ratio between read & write operations.
@@ -12,7 +12,7 @@ theta = 0.99
 size = 1412096
 batch = 16830
 # How many batches are submitted to the stack.
-iteration = 10
+iteration = 30
 seed = 54321
 
 [cache]
@@ -24,19 +24,19 @@ device = "DRAM"
 [devices]
 
 # 460 GiB Optane
-[devices.optane]
+[devices.optane_pmem]
 kind = "Intel_Optane_PMem_100"
 # Total size of device in number of blocks.
 capacity = 117760
 
 # 1 TiB Samsung
-[devices.fast_ssd]
-kind = "Samsung_983_ZET"
+[devices.optane_ssd]
+kind = "Intel_Optane_SSD_DC_P4800X"
 capacity = 245760
 
 # 4 TiB Micron
-[devices.large_ssd]
-kind = "Micron_9100_MAX"
+[devices.kioxia_ssd]
+kind = "KIOXIA_CM7"
 capacity = 1048576
 
 

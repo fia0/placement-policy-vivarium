@@ -4,6 +4,7 @@ use std::{
 };
 
 use crossbeam::channel::Sender;
+use indicatif::{ProgressBar, ProgressStyle};
 use rand::{rngs::StdRng, SeedableRng};
 use serde::Deserialize;
 use zipf::ZipfDistribution;
@@ -39,6 +40,8 @@ pub struct ZipfApp {
     read_latency: Vec<Duration>,
     iteration: usize,
     cur_iteration: usize,
+    // Spinner
+    spinner: ProgressBar,
 }
 
 impl ZipfApp {
@@ -57,6 +60,12 @@ impl ZipfApp {
             read_latency: vec![],
             iteration: config.iteration,
             cur_iteration: 0,
+            spinner: ProgressBar::new(config.iteration.try_into().unwrap()).with_style(
+                ProgressStyle::with_template(
+                    "[{elapsed_precise}]{wide_bar}{pos:>7}/{len}|ETA in: {eta}| {per_sec}",
+                )
+                .unwrap(),
+            ),
         }
     }
 }
@@ -132,16 +141,13 @@ impl Application for ZipfApp {
             //     batch_reads.clone().map(|d| d.as_micros()).sum::<u128>() / self.batch as u128,
             //     batch_reads.map(|d| d.as_micros()).max().unwrap_or(0)
             // );
+            self.spinner.inc(1);
             self.cur_iteration += 1;
-            {
-                use std::io::Write;
-                write!(std::io::stdout(), ".").unwrap();
-                let _ = std::io::stdout().flush();
-            }
             // Immediately start the next batch.
             self.start(now)
         } else {
             if self.current_reqs.len() == 0 {
+                self.spinner.finish();
                 println!("Application finished.");
             }
             Box::new([].into_iter())

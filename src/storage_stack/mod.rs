@@ -46,6 +46,9 @@ impl Device {
                 Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 94f32)
             }
             Device::DRAM => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32)),
+            Device::KIOXIA_CM7 => {
+                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (11.4f32 * 1024f32))
+            }
         }
     }
 
@@ -57,12 +60,15 @@ impl Device {
             Device::Intel_Optane_SSD_DC_P4800X => {
                 Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2278f32)
             }
-            Device::Samsung_983_ZET => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 576f32),
+            Device::Samsung_983_ZET => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 995f32),
             Device::Micron_9100_MAX => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 1408f32),
             Device::Western_Digital_WD5000AAKS => {
                 Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 38.2f32)
             }
             Device::DRAM => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32)),
+            Device::KIOXIA_CM7 => {
+                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (4.18f32 * 1024f32))
+            }
         }
     }
 
@@ -104,6 +110,7 @@ pub enum Device {
     Micron_9100_MAX = 3,
     Western_Digital_WD5000AAKS = 4,
     DRAM = 5,
+    KIOXIA_CM7 = 6,
 }
 
 impl Default for Device {
