@@ -26,6 +26,9 @@ pub enum StorageMsg {
     Finish(Access),
 }
 
+mod devices;
+pub use devices::{Device, BLOCK_SIZE_IN_MB};
+
 impl Device {
     // All these numbers are approximations!  Numbers taken from peak
     // performance over multiple queue depths, real results are likely to be
@@ -95,28 +98,6 @@ impl Device {
     //         Device::DRAM => 32 * 1024 / BLOCK_SIZE_IN_MB,
     //     }
     // }
-}
-
-const BLOCK_SIZE_IN_MB: usize = 4;
-
-#[allow(non_camel_case_types)]
-#[derive(Deserialize, Debug, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, EnumIter)]
-#[repr(u8)]
-pub enum Device {
-    // 6 dimms
-    Intel_Optane_PMem_100 = 0,
-    Intel_Optane_SSD_DC_P4800X = 1,
-    Samsung_983_ZET = 2,
-    Micron_9100_MAX = 3,
-    Western_Digital_WD5000AAKS = 4,
-    DRAM = 5,
-    KIOXIA_CM7 = 6,
-}
-
-impl Default for Device {
-    fn default() -> Self {
-        Self::DRAM
-    }
 }
 
 pub struct DeviceState {

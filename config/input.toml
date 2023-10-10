@@ -12,7 +12,7 @@ theta = 0.99
 size = 1412096
 batch = 16830
 # How many batches are submitted to the stack.
-iteration = 30
+iteration = 1000
 seed = 54321
 
 [cache]
