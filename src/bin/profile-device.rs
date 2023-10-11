@@ -2,8 +2,12 @@ const BLOCK_ALIGNMENT: usize = 4096;
 
 use byte_unit::Byte;
 use clap::Parser;
+use colored::*;
+use indicatif::HumanBytes;
 use rand::prelude::*;
 use std::{
+    fs::OpenOptions,
+    io::Write,
     os::unix::fs::{FileExt, OpenOptionsExt},
     path::PathBuf,
 };
@@ -13,15 +17,24 @@ pub struct Options {
     device_path: PathBuf,
     #[arg(short, long, default_value_t = String::from("1GiB"))]
     size: String,
-    #[arg(short, long, default_values_t = vec![String::from("256B"),String::from("1KiB"), String::from("4KiB"),String::from("16KiB"),String::from("256KiB"),String::from("1MiB"),String::from("4MiB"),String::from("16MiB")])]
+    #[arg(short, long, default_values_t = vec![String::from("4KiB"),String::from("16KiB"),String::from("256KiB"),String::from("1MiB"),String::from("4MiB"),String::from("16MiB")])]
     block_sizes: Vec<String>,
+    #[arg(short, long, default_value_t = String::from("./result.csv"))]
+    result_path: String,
 }
 
 fn main() -> Result<(), std::io::Error> {
     let opts = Options::parse();
 
     // let _ = std::fs::remove_file(opts.device_path);
-    let mut file = std::fs::OpenOptions::new()
+
+    assert!(!std::path::Path::new(&opts.result_path).exists());
+    let mut results = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(opts.result_path)?;
+    let mut file = OpenOptions::new()
         .write(true)
         .read(true)
         .create(true)
@@ -33,6 +46,7 @@ fn main() -> Result<(), std::io::Error> {
         .unwrap_or(0);
     file.set_len(size as u64)?;
 
+    results.write_fmt(format_args!("block_size,blocks,avg_latency_us\n"))?;
     for (op, block_size) in opts
         .block_sizes
         .iter()
@@ -48,16 +62,26 @@ fn main() -> Result<(), std::io::Error> {
     {
         let blocks = size / block_size;
 
+        println!(
+            "{}: Running benchmark with {} and {}",
+            "Perpared".bold(),
+            format!("{}", HumanBytes(block_size as u64)).green(),
+            format!("{op}").bright_cyan()
+        );
         let end = run(
             &mut file,
             op,
             blocks.try_into().unwrap(),
             block_size.try_into().unwrap(),
         )?;
-        println!(
-            "Achieved {op}: {} MiB/s",
-            size as f32 / 1024. / 1024. / end.as_secs_f32()
-        );
+        let bw = size as f32 / 1024. / 1024. / end.as_secs_f32();
+        println!("{}: {op}: {} MiB/s", "Achieved".bold(), bw);
+        results.write_fmt(format_args!(
+            "{},{},{}\n",
+            block_size,
+            blocks,
+            end.as_micros() / blocks
+        ))?;
     }
     Ok(())
 }

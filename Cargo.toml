@@ -16,6 +16,6 @@ strum = { version = "0.25.0", features = ["derive"] }
 thiserror = "1.0.48"
 toml = "0.8.0"
 zipf = "7.0.1"
-test-access = { path="test-access" }
 libc = "0.2.149"
 byte-unit = "4.0.19"
+colored = "2.0.4"
