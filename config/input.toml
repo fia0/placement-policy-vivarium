@@ -39,6 +39,10 @@ capacity = 245760
 kind = "KIOXIA_CM7"
 capacity = 1048576
 
+[devices.my-own-hdd]
+kind = { Custom = "foo" }
+capacity = 10000
+
 
 # [devices.spinny_boy]
 # kind = "Western_Digital_WD5000AAKS"

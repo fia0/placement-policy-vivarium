@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::Access;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
 /// This file contains a definition of available storage devices.
@@ -14,7 +14,7 @@ use strum::EnumIter;
 pub const BLOCK_SIZE_IN_MB: usize = 4;
 
 #[allow(non_camel_case_types)]
-#[derive(Deserialize, Debug, Hash, PartialEq, Clone, EnumIter)]
+#[derive(Deserialize, Serialize, Debug, Hash, PartialEq, Clone, EnumIter)]
 pub enum Device {
     // 6 dimms
     Intel_Optane_PMem_100,
@@ -24,8 +24,7 @@ pub enum Device {
     Western_Digital_WD5000AAKS,
     DRAM,
     KIOXIA_CM7,
-    #[serde(skip)]
-    Custom(DeviceLatencyTable),
+    Custom(String),
 }
 
 impl Default for Device {
@@ -141,7 +140,9 @@ impl DeviceLatencyTable {
     }
 }
 
-pub fn load_devices(path: impl AsRef<Path>) -> Result<HashMap<String, Device>, Box<dyn Error>> {
+pub fn load_devices(
+    path: impl AsRef<Path>,
+) -> Result<HashMap<String, DeviceLatencyTable>, Box<dyn Error>> {
     let mut devices = HashMap::new();
     for file in std::fs::read_dir(path)? {
         let file = file?;
@@ -171,7 +172,7 @@ pub fn load_devices(path: impl AsRef<Path>) -> Result<HashMap<String, Device>, B
                     .unwrap()
                     .to_string_lossy()
                     .to_string(),
-                Device::Custom(device),
+                device,
             );
         }
     }

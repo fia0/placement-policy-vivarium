@@ -17,6 +17,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     io::Read,
     path::PathBuf,
+    process::ExitCode,
     time::{Duration, SystemTime},
 };
 
@@ -286,8 +287,8 @@ pub enum SimError {
         #[from]
         source: toml::de::Error,
     },
-    #[error("An error occured.")]
-    Generic,
+    #[error("An error occured: {0}.")]
+    Generic(String),
     #[error("An error occured: {source}")]
     Internal {
         #[from]
@@ -316,7 +317,15 @@ pub enum Commands {
     },
 }
 
-fn main() -> Result<(), SimError> {
+fn main() -> ExitCode {
+    if let Err(e) = faux_main() {
+        eprintln!("{}", e);
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
+}
+
+fn faux_main() -> Result<(), SimError> {
     let args = SimCli::parse();
 
     match args.cmd {
@@ -327,17 +336,12 @@ fn main() -> Result<(), SimError> {
                 println!("\t{dev:?}",);
             }
             for (id, dev) in load_devices(&args.add_device_path)?.iter() {
-                match dev {
-                    Device::Custom(f) => {
-                        println!(
-                            "\t{id} (block sizes: {:?})",
-                            f.keys()
-                                .map(|b| format!("{}", HumanBytes(*b)))
-                                .collect::<Vec<_>>()
-                        )
-                    }
-                    _ => unreachable!(),
-                };
+                println!(
+                    "\t{id} (block sizes: {:?})",
+                    dev.keys()
+                        .map(|b| format!("{}", HumanBytes(*b)))
+                        .collect::<Vec<_>>()
+                )
             }
             Ok(())
         }
@@ -353,6 +357,20 @@ fn main() -> Result<(), SimError> {
             let mut content = String::new();
             file.read_to_string(&mut content)?;
             let config: config::Config = toml::from_str(&content)?;
+            let custom_devices = load_devices(&args.add_device_path)?;
+            for (_, state) in config.devices().iter() {
+                match state.kind {
+                    Device::Custom(ref kind) => {
+                        if !custom_devices.contains_key(kind) {
+                            return Err(SimError::Generic(format!(
+                                "Custom device \"{}\" was not found in {}",
+                                kind, args.add_device_path
+                            )));
+                        }
+                    }
+                    _ => {}
+                }
+            }
 
             // append suffix to avoid overwriting data
             let mut cur = 0;
