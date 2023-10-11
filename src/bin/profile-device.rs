@@ -46,7 +46,9 @@ fn main() -> Result<(), std::io::Error> {
         .unwrap_or(0);
     file.set_len(size as u64)?;
 
-    results.write_fmt(format_args!("block_size,blocks,avg_latency_us\n"))?;
+    results.write_fmt(format_args!(
+        "block_size,blocks,avg_latency_us,op,pattern\n"
+    ))?;
     for (op, block_size) in opts
         .block_sizes
         .iter()
@@ -77,10 +79,12 @@ fn main() -> Result<(), std::io::Error> {
         let bw = size as f32 / 1024. / 1024. / end.as_secs_f32();
         println!("{}: {op}: {} MiB/s", "Achieved".bold(), bw);
         results.write_fmt(format_args!(
-            "{},{},{}\n",
+            "{},{},{},{},{}\n",
             block_size,
             blocks,
-            end.as_micros() / blocks
+            end.as_micros() / blocks,
+            op.as_str_op(),
+            op.as_str_pattern()
         ))?;
     }
     Ok(())
@@ -92,6 +96,22 @@ enum Mode {
     RandomRead,
     SequentialWrite,
     SequentialRead,
+}
+
+impl Mode {
+    fn as_str_op(&self) -> &str {
+        match self {
+            Mode::RandomWrite | Mode::SequentialWrite => "write",
+            Mode::RandomRead | Mode::SequentialRead => "read",
+        }
+    }
+
+    fn as_str_pattern(&self) -> &str {
+        match self {
+            Mode::RandomWrite | Mode::RandomRead => "random",
+            Mode::SequentialRead | Mode::SequentialWrite => "sequential",
+        }
+    }
 }
 
 impl std::fmt::Display for Mode {
