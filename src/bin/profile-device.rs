@@ -64,7 +64,7 @@ fn main() -> Result<(), std::io::Error> {
 
         println!(
             "{}: Running benchmark with {} and {}",
-            "Perpared".bold(),
+            "Prepared".bold(),
             format!("{}", HumanBytes(block_size as u64)).green(),
             format!("{op}").bright_cyan()
         );
