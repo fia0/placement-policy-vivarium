@@ -23,6 +23,7 @@ use std::{
 use application::Application;
 use clap::{Parser, Subcommand};
 use crossbeam::channel::Sender;
+use indicatif::HumanBytes;
 use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 
 use result_csv::ResMsg;
@@ -31,7 +32,11 @@ use strum::IntoEnumIterator;
 use thiserror::Error;
 use zipf::ZipfDistribution;
 
-use crate::{cache::CacheMsg, config::App, storage_stack::Device};
+use crate::{
+    cache::CacheMsg,
+    config::App,
+    storage_stack::{load_devices, Device},
+};
 
 mod application;
 mod cache;
@@ -283,12 +288,19 @@ pub enum SimError {
     },
     #[error("An error occured.")]
     Generic,
+    #[error("An error occured: {source}")]
+    Internal {
+        #[from]
+        source: Box<dyn std::error::Error>,
+    },
 }
 
 #[derive(Parser, Debug)]
 struct SimCli {
     #[command(subcommand)]
     cmd: Commands,
+    #[arg(short, long, default_value_t = String::from("./additional_devices"))]
+    add_device_path: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -312,11 +324,20 @@ fn main() -> Result<(), SimError> {
             // Print out all devices
             println!("Available devices:\n");
             for dev in Device::iter() {
-                println!(
-                    "\t{dev:?} (Read: {} ns, Write: {} ns)",
-                    dev.read().as_nanos(),
-                    dev.write().as_nanos()
-                );
+                println!("\t{dev:?}",);
+            }
+            for (id, dev) in load_devices(&args.add_device_path)?.iter() {
+                match dev {
+                    Device::Custom(f) => {
+                        println!(
+                            "\t{id} (block sizes: {:?})",
+                            f.keys()
+                                .map(|b| format!("{}", HumanBytes(*b)))
+                                .collect::<Vec<_>>()
+                        )
+                    }
+                    _ => unreachable!(),
+                };
             }
             Ok(())
         }

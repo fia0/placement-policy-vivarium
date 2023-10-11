@@ -3,8 +3,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use serde::Deserialize;
-use strum::EnumIter;
 use thiserror::Error;
 
 use crate::{
@@ -27,93 +25,7 @@ pub enum StorageMsg {
 }
 
 mod devices;
-pub use devices::{Device, BLOCK_SIZE_IN_MB};
-
-impl Device {
-    // All these numbers are approximations!  Numbers taken from peak
-    // performance over multiple queue depths, real results are likely to be
-    // worse.
-    pub fn read(&self) -> Duration {
-        match self {
-            // 30 GiB/s peak
-            Device::Intel_Optane_PMem_100 => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (30f32 * 1024f32))
-            }
-            // 2.5 GiB/s peak
-            Device::Intel_Optane_SSD_DC_P4800X => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2517f32)
-            }
-            Device::Samsung_983_ZET => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 3130f32),
-            Device::Micron_9100_MAX => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2903f32),
-            Device::Western_Digital_WD5000AAKS => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 94f32)
-            }
-            Device::DRAM => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32)),
-            Device::KIOXIA_CM7 => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (11.4f32 * 1024f32))
-            }
-        }
-    }
-
-    pub fn write(&self) -> Duration {
-        match self {
-            Device::Intel_Optane_PMem_100 => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (16f32 * 1024f32))
-            }
-            Device::Intel_Optane_SSD_DC_P4800X => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2278f32)
-            }
-            Device::Samsung_983_ZET => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 995f32),
-            Device::Micron_9100_MAX => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 1408f32),
-            Device::Western_Digital_WD5000AAKS => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 38.2f32)
-            }
-            Device::DRAM => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32)),
-            Device::KIOXIA_CM7 => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (4.18f32 * 1024f32))
-            }
-        }
-    }
-
-    // /// Number of blocks a single device can at maximum hold.
-    // fn capacity(&self) -> usize {
-    //     match self {
-    //         // 1 TB max assumed (more is possible i know)
-    //         //                    TB   GB     MB
-    //         Device::OptanePMem => 1 * 1024 * 1024 / BLOCK_SIZE_IN_MB,
-    //         // 1.6 TB max
-    //         //                    GB     MB
-    //         Device::OptaneSSD => 1600 * 1000 / BLOCK_SIZE_IN_MB,
-    //         // 3.2 TB max
-    //         //                      GB     MB
-    //         Device::SamsungZSSD => 3200 * 1000 / BLOCK_SIZE_IN_MB,
-    //         // 30.72 TB max
-    //         //                      GB       MB
-    //         Device::MicronTLCSSD => 30720 * 1000 / BLOCK_SIZE_IN_MB,
-    //         // 30 TB max assumed (there is higher)
-    //         //                    TB    GB     MB
-    //         Device::GenericHDD => 30 * 1024 * 1024 / BLOCK_SIZE_IN_MB,
-    //         // 32 GB max (set limitation due to impl on client)
-    //         //              GB   MB
-    //         Device::DRAM => 32 * 1024 / BLOCK_SIZE_IN_MB,
-    //     }
-    // }
-}
-
-pub struct DeviceState {
-    pub kind: Device,
-    // Number of blocks currently used.
-    pub free: usize,
-    // Absolute number of blocks which can be stored.
-    pub total: usize,
-    pub reserved_until: SystemTime,
-    pub queue: VecDeque<Access>,
-    // Metrics
-    pub max_q: Duration,
-    pub total_q: Duration,
-    pub total_req: usize,
-    pub idle_time: Duration,
-}
+pub use devices::{load_devices, Device, DeviceState, BLOCK_SIZE_IN_MB};
 
 #[derive(Error, Debug)]
 pub enum StorageError {

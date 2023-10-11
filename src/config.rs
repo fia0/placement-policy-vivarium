@@ -30,7 +30,7 @@ impl Config {
                 (
                     id.clone(),
                     DeviceState {
-                        kind: dev.kind,
+                        kind: dev.kind.clone(),
                         free: dev.capacity,
                         total: dev.capacity,
                         reserved_until: std::time::UNIX_EPOCH,
@@ -90,8 +90,8 @@ pub enum CacheAlgorithm {
 impl CacheConfig {
     pub fn build(&self) -> Box<dyn Cache> {
         match self.algorithm {
-            CacheAlgorithm::Lru => Box::new(Lru::new(self.capacity, self.device)),
-            CacheAlgorithm::Fifo => Box::new(Fifo::new(self.capacity, self.device)),
+            CacheAlgorithm::Lru => Box::new(Lru::new(self.capacity, self.device.clone())),
+            CacheAlgorithm::Fifo => Box::new(Fifo::new(self.capacity, self.device.clone())),
             CacheAlgorithm::Noop => Box::new(Noop {}),
         }
     }
