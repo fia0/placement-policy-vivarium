@@ -6,10 +6,13 @@ use colored::*;
 use indicatif::HumanBytes;
 use rand::prelude::*;
 use std::{
+    error::Error,
     fs::OpenOptions,
     io::Write,
     os::unix::fs::{FileExt, OpenOptionsExt},
     path::PathBuf,
+    process::ExitCode,
+    time::Duration,
 };
 
 #[derive(Parser)]
@@ -19,16 +22,26 @@ pub struct Options {
     size: String,
     #[arg(short, long, default_values_t = vec![String::from("4KiB"),String::from("16KiB"),String::from("256KiB"),String::from("1MiB"),String::from("4MiB"),String::from("16MiB")])]
     block_sizes: Vec<String>,
+    #[arg(short = 'd', long, default_value_t = String::from("30s"))]
+    sample_duration: String,
     #[arg(short, long, default_value_t = String::from("./result.csv"))]
     result_path: String,
 }
 
-fn main() -> Result<(), std::io::Error> {
+fn main() -> ExitCode {
+    if let Err(e) = faux_main() {
+        println!("Error: {e}");
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
+}
+
+fn faux_main() -> Result<(), Box<dyn Error>> {
     let opts = Options::parse();
 
     // let _ = std::fs::remove_file(opts.device_path);
 
-    assert!(!std::path::Path::new(&opts.result_path).exists());
+    let sample_duration = duration_str::parse(&opts.sample_duration)?;
     let mut results = OpenOptions::new()
         .write(true)
         .create(true)
@@ -44,7 +57,7 @@ fn main() -> Result<(), std::io::Error> {
     let size = Byte::from_str(opts.size)
         .map(|b| b.get_bytes())
         .unwrap_or(0);
-    file.set_len(size as u64)?;
+    // file.set_len(size as u64)?;
 
     results.write_fmt(format_args!(
         "block_size,blocks,avg_latency_us,op,pattern\n"
@@ -70,22 +83,25 @@ fn main() -> Result<(), std::io::Error> {
             format!("{}", HumanBytes(block_size as u64)).green(),
             format!("{op}").bright_cyan()
         );
-        let end = run(
+        let (end, blocks) = run(
             &mut file,
             op,
+            sample_duration,
             blocks.try_into().unwrap(),
             block_size.try_into().unwrap(),
         )?;
-        let bw = size as f32 / 1024. / 1024. / end.as_secs_f32();
+        let bw = (blocks as u128 * block_size) as f32 / 1024. / 1024. / end.as_secs_f32();
         println!("{}: {op}: {} MiB/s", "Achieved".bold(), bw);
+        println!("{}: {op}: {}s", "Achieved".bold(), end.as_secs_f32());
         results.write_fmt(format_args!(
             "{},{},{},{},{}\n",
             block_size,
             blocks,
-            end.as_micros() / blocks,
+            end.as_micros() / blocks as u128,
             op.as_str_op(),
             op.as_str_pattern()
         ))?;
+        std::thread::sleep(std::time::Duration::from_secs(5));
     }
     Ok(())
 }
@@ -128,38 +144,49 @@ impl std::fmt::Display for Mode {
 fn run(
     map: &mut std::fs::File,
     mode: Mode,
-    blocks: u64,
+    run_until: Duration,
+    total_blocks: u64,
     block_size: usize,
-) -> Result<std::time::Duration, std::io::Error> {
+) -> Result<(std::time::Duration, u64), std::io::Error> {
     let buf_layout =
         unsafe { std::alloc::Layout::from_size_align_unchecked(block_size, BLOCK_ALIGNMENT) };
     let buf: *mut [u8] = unsafe {
         std::ptr::slice_from_raw_parts_mut(std::alloc::alloc_zeroed(buf_layout), block_size)
     };
 
-    let mut offsets = (0..blocks)
-        .map(|x| x * block_size as u64)
-        .collect::<Vec<_>>();
+    let offsets: Box<dyn Iterator<Item = u64>>;
     match mode {
         Mode::RandomWrite | Mode::RandomRead => {
-            let mut rng = rand::thread_rng();
-            offsets.shuffle(&mut rng);
+            let rng = rand::rngs::StdRng::seed_from_u64(54321);
+            offsets = Box::new(
+                rng.sample_iter(rand::distributions::Uniform::new(0, total_blocks))
+                    .map(|x| x * block_size as u64),
+            )
+            // offsets.shuffle(&mut rng);
         }
-        Mode::SequentialWrite | Mode::SequentialRead => {}
+        Mode::SequentialWrite | Mode::SequentialRead => {
+            offsets = Box::new((0..total_blocks).map(|x| x * block_size as u64));
+        }
     }
 
+    let mut processed_blocks = 0;
     let now = std::time::Instant::now();
     unsafe {
-        for n in offsets.iter() {
+        for n in offsets {
             match mode {
                 Mode::RandomWrite | Mode::SequentialWrite => {
-                    assert_eq!(map.write_at(&*buf, *n)?, block_size);
+                    assert_eq!(map.write_at(&*buf, n)?, block_size);
                 }
                 Mode::RandomRead | Mode::SequentialRead => {
-                    assert_eq!(map.read_at(&mut *buf, *n)?, block_size);
+                    assert_eq!(map.read_at(&mut *buf, n)?, block_size);
                 }
+            }
+            processed_blocks += 1;
+            // FIXME: reduce costs
+            if now.elapsed() > run_until {
+                break;
             }
         }
     }
-    Ok(now.elapsed())
+    Ok((now.elapsed(), processed_blocks))
 }

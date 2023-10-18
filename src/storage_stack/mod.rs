@@ -25,7 +25,9 @@ pub enum StorageMsg {
 }
 
 mod devices;
-pub use devices::{load_devices, Device, DeviceState, BLOCK_SIZE_IN_MB};
+pub use devices::{
+    load_devices, Device, DeviceLatencyTable, DeviceSer, DeviceState, BLOCK_SIZE_IN_MB,
+};
 
 #[derive(Error, Debug)]
 pub enum StorageError {

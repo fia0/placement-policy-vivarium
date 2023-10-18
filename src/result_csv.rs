@@ -90,16 +90,31 @@ impl ResultCollector {
                     for mut vals in [writes, reads].into_iter() {
                         vals.all.sort();
                         let total = vals.all.len() as u128;
-                        let avg = vals.all.iter().map(|d| d.as_micros()).sum::<u128>() / total;
+                        let avg = vals
+                            .all
+                            .iter()
+                            .map(|d| d.as_micros())
+                            .sum::<u128>()
+                            .checked_div(total)
+                            .unwrap_or(0);
                         let max = vals.all.iter().map(|d| d.as_micros()).max().unwrap_or(0);
                         self.application.write_fmt(format_args!(
                             "{},{},{},{},{},{},",
                             total,
                             avg,
                             max,
-                            vals.all.percentile(0.90).as_micros(),
-                            vals.all.percentile(0.95).as_micros(),
-                            vals.all.percentile(0.99).as_micros(),
+                            vals.all
+                                .percentile(0.90)
+                                .unwrap_or(&Duration::ZERO)
+                                .as_micros(),
+                            vals.all
+                                .percentile(0.95)
+                                .unwrap_or(&Duration::ZERO)
+                                .as_micros(),
+                            vals.all
+                                .percentile(0.99)
+                                .unwrap_or(&Duration::ZERO)
+                                .as_micros(),
                         ))?;
                     }
                     self.application.write(b"\n")?;
@@ -145,13 +160,13 @@ impl ResultCollector {
 
 trait Percentile<T> {
     /// This function assuems that the given Vector is sorted.
-    fn percentile(&self, p: f32) -> &T;
+    fn percentile(&self, p: f32) -> Option<&T>;
 }
 
 impl<T> Percentile<T> for Vec<T> {
-    fn percentile(&self, p: f32) -> &T {
+    fn percentile(&self, p: f32) -> Option<&T> {
         // should be sufficient for the determination of this percentile
         let cut_off = (self.len() as f32 * p).ceil() as usize;
-        &self[cut_off]
+        self.get(cut_off)
     }
 }

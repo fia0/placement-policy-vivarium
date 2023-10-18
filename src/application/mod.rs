@@ -3,7 +3,7 @@ use std::time::SystemTime;
 
 mod zipf;
 use crossbeam::channel::Sender;
-pub use zipf::{ZipfApp, ZipfConfig};
+pub use zipf::{BatchApp, BatchConfig};
 
 /// An actor which issues and waits for accesses.
 pub trait Application {

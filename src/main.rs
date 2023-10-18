@@ -25,18 +25,16 @@ use application::Application;
 use clap::{Parser, Subcommand};
 use crossbeam::channel::Sender;
 use indicatif::HumanBytes;
-use rand::{prelude::Distribution, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
-
+use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use result_csv::ResMsg;
 use storage_stack::{StorageError, StorageMsg, StorageStack};
 use strum::IntoEnumIterator;
 use thiserror::Error;
-use zipf::ZipfDistribution;
 
 use crate::{
     cache::CacheMsg,
     config::App,
-    storage_stack::{load_devices, Device},
+    storage_stack::{load_devices, Device, DeviceSer},
 };
 
 mod application;
@@ -55,34 +53,6 @@ pub enum Access {
 }
 
 impl Access {
-    pub fn generate<R>(rw: f64, dist: &mut ZipfDistribution, rng: &mut R) -> Self
-    where
-        R: Rng,
-    {
-        let block = Block(dist.sample(rng));
-        match rng.gen_bool(rw) {
-            true => Self::Read(block),
-            false => Self::Write(block),
-        }
-    }
-
-    pub fn generate_iter<R>(
-        rw: f64,
-        dist: ZipfDistribution,
-        rng: R,
-        mut rng_rw: R,
-    ) -> impl Iterator<Item = Access>
-    where
-        R: Rng,
-    {
-        dist.sample_iter(rng)
-            .map(|ids| Block(ids))
-            .map(move |block| match rng_rw.gen_bool(rw) {
-                true => Self::Read(block),
-                false => Self::Write(block),
-            })
-    }
-
     pub fn is_read(&self) -> bool {
         match self {
             Access::Read(_) => true,
@@ -97,27 +67,6 @@ impl Access {
         }
     }
 }
-
-pub struct RandomAccessSequence<'a, R> {
-    rng: &'a mut R,
-    dist: &'a mut ZipfDistribution,
-    rw: f64,
-}
-
-impl<'a, R: Rng> RandomAccessSequence<'a, R> {
-    pub fn new(rng: &'a mut R, dist: &'a mut ZipfDistribution, rw: f64) -> Self {
-        Self { rng, dist, rw }
-    }
-}
-
-impl<'a, R: Rng> Iterator for RandomAccessSequence<'a, R> {
-    type Item = Access;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(Access::generate(self.rw, self.dist, self.rng))
-    }
-}
-
 pub trait Policy {
     fn new() -> Self;
     fn update(&mut self, accesses: Vec<Access>) -> State;
@@ -178,7 +127,7 @@ impl<S, P> PolicySimulator<S, P> {
     /// Distribute initial blocks in the storage stack. This is done entirely
     /// randomly with a fixed seed.
     fn prepare(&mut self) {
-        for block in self.application.init() {
+        'outer: for block in self.application.init() {
             // Try insertion.
             let mut devs = self
                 .stack
@@ -191,9 +140,10 @@ impl<S, P> PolicySimulator<S, P> {
             devs.shuffle(&mut self.rng);
             for dev in devs.iter() {
                 if self.stack.insert(block, dev.clone()).is_none() {
-                    break;
+                    continue 'outer;
                 }
             }
+            panic!("No space available")
         }
     }
 
@@ -287,6 +237,8 @@ pub enum SimError {
         #[from]
         source: toml::de::Error,
     },
+    #[error("Custom device \"{0}\" was not found in given path.")]
+    MissingCustomDevice(String),
     #[error("An error occured: {0}.")]
     Generic(String),
     #[error("An error occured: {source}")]
@@ -332,7 +284,7 @@ fn faux_main() -> Result<(), SimError> {
         Commands::Devices => {
             // Print out all devices
             println!("Available devices:\n");
-            for dev in Device::iter() {
+            for dev in DeviceSer::iter() {
                 println!("\t{dev:?}",);
             }
             for (id, dev) in load_devices(&args.add_device_path)?.iter() {
@@ -358,20 +310,6 @@ fn faux_main() -> Result<(), SimError> {
             file.read_to_string(&mut content)?;
             let config: config::Config = toml::from_str(&content)?;
             let custom_devices = load_devices(&args.add_device_path)?;
-            for (_, state) in config.devices().iter() {
-                match state.kind {
-                    Device::Custom(ref kind) => {
-                        if !custom_devices.contains_key(kind) {
-                            return Err(SimError::Generic(format!(
-                                "Custom device \"{}\" was not found in {}",
-                                kind, args.add_device_path
-                            )));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
             // append suffix to avoid overwriting data
             let mut cur = 0;
             let mut results = config
@@ -399,10 +337,10 @@ fn faux_main() -> Result<(), SimError> {
             let sim: PolicySimulator<(), ()> = PolicySimulator {
                 stack: StorageStack {
                     blocks: [].into(),
-                    devices: config.devices(),
+                    devices: config.devices(&custom_devices)?,
                     state: (),
                     policy: (),
-                    cache: config.cache(),
+                    cache: config.cache(&custom_devices)?,
                 },
                 application: config.app.build(),
                 now: std::time::UNIX_EPOCH,

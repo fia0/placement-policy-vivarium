@@ -1,10 +1,11 @@
 use crate::{
-    application::{Application, ZipfApp, ZipfConfig},
+    application::{Application, BatchApp, BatchConfig},
     cache::{Cache, CacheLogic, Fifo, Lru, Noop},
-    storage_stack::DeviceState,
+    storage_stack::{Device, DeviceLatencyTable, DeviceState},
+    SimError,
 };
 
-use super::Device;
+use crate::storage_stack::DeviceSer;
 use serde::Deserialize;
 use std::collections::{HashMap, VecDeque};
 use strum::EnumIter;
@@ -23,60 +24,65 @@ pub struct Results {
 }
 
 impl Config {
-    pub fn devices(&self) -> HashMap<String, DeviceState> {
-        self.devices
-            .iter()
-            .map(|(id, dev)| {
-                (
-                    id.clone(),
-                    DeviceState {
-                        kind: dev.kind.clone(),
-                        free: dev.capacity,
-                        total: dev.capacity,
-                        reserved_until: std::time::UNIX_EPOCH,
-                        queue: VecDeque::new(),
-                        total_q: std::time::Duration::ZERO,
-                        total_req: 0,
-                        max_q: std::time::Duration::ZERO,
-                        idle_time: std::time::Duration::ZERO,
-                    },
-                )
-            })
-            .collect()
+    pub fn devices(
+        &self,
+        loaded_devices: &HashMap<String, DeviceLatencyTable>,
+    ) -> Result<HashMap<String, DeviceState>, SimError> {
+        let mut map = HashMap::new();
+        for (id, dev) in self.devices.iter() {
+            map.insert(
+                id.clone(),
+                DeviceState {
+                    kind: dev.kind.to_device(loaded_devices)?,
+                    free: dev.capacity,
+                    total: dev.capacity,
+                    reserved_until: std::time::UNIX_EPOCH,
+                    queue: VecDeque::new(),
+                    total_q: std::time::Duration::ZERO,
+                    total_req: 0,
+                    max_q: std::time::Duration::ZERO,
+                    idle_time: std::time::Duration::ZERO,
+                },
+            );
+        }
+        Ok(map)
     }
 
-    pub fn cache(&self) -> CacheLogic {
-        CacheLogic::new(match &self.cache {
-            Some(c) => c.build(),
+    pub fn cache(
+        &self,
+        loaded_devices: &HashMap<String, DeviceLatencyTable>,
+    ) -> Result<CacheLogic, SimError> {
+        Ok(CacheLogic::new(match &self.cache {
+            Some(c) => c.build(loaded_devices)?,
             None => Box::new(Noop {}),
-        })
+        }))
     }
 }
 
 #[derive(Deserialize, EnumIter, Debug)]
 pub enum App {
-    /// An application with a zipfian distributed random access pattern on blocks
-    Zipf(ZipfConfig),
+    /// An application with a configurable access pattern on blocks
+    Batch(BatchConfig),
 }
 
 impl App {
     pub fn build(&self) -> Box<dyn Application> {
         match self {
-            App::Zipf(config) => Box::new(ZipfApp::new(config)),
+            App::Batch(config) => Box::new(BatchApp::new(config)),
         }
     }
 }
 
 #[derive(Deserialize)]
 pub struct DeviceConfig {
-    kind: Device,
+    kind: DeviceSer,
     capacity: usize,
 }
 
 #[derive(Deserialize)]
 pub struct CacheConfig {
     algorithm: CacheAlgorithm,
-    device: Device,
+    device: DeviceSer,
     capacity: usize,
 }
 
@@ -88,11 +94,20 @@ pub enum CacheAlgorithm {
 }
 
 impl CacheConfig {
-    pub fn build(&self) -> Box<dyn Cache> {
+    pub fn build(
+        &self,
+        loaded_devices: &HashMap<String, DeviceLatencyTable>,
+    ) -> Result<Box<dyn Cache>, SimError> {
         match self.algorithm {
-            CacheAlgorithm::Lru => Box::new(Lru::new(self.capacity, self.device.clone())),
-            CacheAlgorithm::Fifo => Box::new(Fifo::new(self.capacity, self.device.clone())),
-            CacheAlgorithm::Noop => Box::new(Noop {}),
+            CacheAlgorithm::Lru => Ok(Box::new(Lru::new(
+                self.capacity,
+                self.device.to_device(loaded_devices)?,
+            ))),
+            CacheAlgorithm::Fifo => Ok(Box::new(Fifo::new(
+                self.capacity,
+                self.device.to_device(loaded_devices)?,
+            ))),
+            CacheAlgorithm::Noop => Ok(Box::new(Noop {})),
         }
     }
 }

@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::Access;
+use crate::{Access, SimError};
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
@@ -14,8 +14,15 @@ use strum::EnumIter;
 pub const BLOCK_SIZE_IN_MB: usize = 4;
 
 #[allow(non_camel_case_types)]
-#[derive(Deserialize, Serialize, Debug, Hash, PartialEq, Clone, EnumIter)]
+#[derive(Debug, Hash, PartialEq, Clone)]
 pub enum Device {
+    Standard(DeviceSer),
+    Custom(DeviceLatencyTable),
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Deserialize, Serialize, Debug, Hash, PartialEq, Clone, EnumIter)]
+pub enum DeviceSer {
     // 6 dimms
     Intel_Optane_PMem_100,
     Intel_Optane_SSD_DC_P4800X,
@@ -27,9 +34,25 @@ pub enum Device {
     Custom(String),
 }
 
+impl DeviceSer {
+    pub fn to_device(
+        &self,
+        loaded_devices: &HashMap<String, DeviceLatencyTable>,
+    ) -> Result<Device, SimError> {
+        match self {
+            DeviceSer::Custom(id) => loaded_devices
+                .get(id)
+                .cloned()
+                .ok_or(SimError::MissingCustomDevice(id.clone()))
+                .map(|d| Device::Custom(d)),
+            std => Ok(Device::Standard(std.clone())),
+        }
+    }
+}
+
 impl Default for Device {
     fn default() -> Self {
-        Self::DRAM
+        Device::Standard(DeviceSer::DRAM)
     }
 }
 
@@ -37,47 +60,75 @@ impl Device {
     // All these numbers are approximations!  Numbers taken from peak
     // performance over multiple queue depths, real results are likely to be
     // worse.
+    // TODO: Consider block sizes!
     pub fn read(&self) -> Duration {
         match self {
-            // 30 GiB/s peak
-            Device::Intel_Optane_PMem_100 => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (30f32 * 1024f32))
+            Self::Standard(dev) => {
+                match dev {
+                    // 30 GiB/s peak
+                    DeviceSer::Intel_Optane_PMem_100 => {
+                        Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (30f32 * 1024f32))
+                    }
+                    // 2.5 GiB/s peak
+                    DeviceSer::Intel_Optane_SSD_DC_P4800X => {
+                        Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2517f32)
+                    }
+                    DeviceSer::Samsung_983_ZET => {
+                        Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 3130f32)
+                    }
+                    DeviceSer::Micron_9100_MAX => {
+                        Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2903f32)
+                    }
+                    DeviceSer::Western_Digital_WD5000AAKS => {
+                        Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 94f32)
+                    }
+                    DeviceSer::DRAM => {
+                        Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32))
+                    }
+                    DeviceSer::KIOXIA_CM7 => {
+                        Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (11.4f32 * 1024f32))
+                    }
+                    DeviceSer::Custom(_) => unreachable!(),
+                }
             }
-            // 2.5 GiB/s peak
-            Device::Intel_Optane_SSD_DC_P4800X => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2517f32)
+            Device::Custom(dev) => {
+                // TODO: Speed up this query, either, to one catchall hash or something but it's to slow
+                const FIXED_BS: u64 = 4096;
+                dev.0[Op::Read as usize].get(&FIXED_BS).unwrap().0[Ap::Random as usize]
             }
-            Device::Samsung_983_ZET => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 3130f32),
-            Device::Micron_9100_MAX => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2903f32),
-            Device::Western_Digital_WD5000AAKS => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 94f32)
-            }
-            Device::DRAM => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32)),
-            Device::KIOXIA_CM7 => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (11.4f32 * 1024f32))
-            }
-            Device::Custom(_) => todo!(),
         }
     }
 
     pub fn write(&self) -> Duration {
         match self {
-            Device::Intel_Optane_PMem_100 => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (16f32 * 1024f32))
+            Self::Standard(dev) => match dev {
+                DeviceSer::Intel_Optane_PMem_100 => {
+                    Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (16f32 * 1024f32))
+                }
+                DeviceSer::Intel_Optane_SSD_DC_P4800X => {
+                    Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2278f32)
+                }
+                DeviceSer::Samsung_983_ZET => {
+                    Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 995f32)
+                }
+                DeviceSer::Micron_9100_MAX => {
+                    Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 1408f32)
+                }
+                DeviceSer::Western_Digital_WD5000AAKS => {
+                    Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 38.2f32)
+                }
+                DeviceSer::DRAM => {
+                    Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32))
+                }
+                DeviceSer::KIOXIA_CM7 => {
+                    Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (4.18f32 * 1024f32))
+                }
+                DeviceSer::Custom(_) => unreachable!(),
+            },
+            Device::Custom(dev) => {
+                const FIXED_BS: u64 = 4096;
+                dev.0[Op::Read as usize].get(&FIXED_BS).unwrap().0[Ap::Random as usize]
             }
-            Device::Intel_Optane_SSD_DC_P4800X => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 2278f32)
-            }
-            Device::Samsung_983_ZET => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 995f32),
-            Device::Micron_9100_MAX => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 1408f32),
-            Device::Western_Digital_WD5000AAKS => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / 38.2f32)
-            }
-            Device::DRAM => Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (90f32 * 1024f32)),
-            Device::KIOXIA_CM7 => {
-                Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (4.18f32 * 1024f32))
-            }
-            Device::Custom(_) => todo!(),
         }
     }
 
