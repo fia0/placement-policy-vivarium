@@ -1,4 +1,5 @@
 #![feature(return_position_impl_trait_in_trait)]
+#![feature(btree_cursors)]
 /// This project contains a rough-edge simulator description of a multi-device
 /// storage stack to try out some migration policies.
 ///

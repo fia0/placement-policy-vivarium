@@ -2,7 +2,7 @@ use crate::{
     application::{Application, BatchApp, BatchConfig},
     cache::{Cache, CacheLogic, Fifo, Lru, Noop},
     storage_stack::{Device, DeviceLatencyTable, DeviceState},
-    SimError,
+    Block, SimError,
 };
 
 use crate::storage_stack::DeviceSer;
@@ -42,6 +42,7 @@ impl Config {
                     total_req: 0,
                     max_q: std::time::Duration::ZERO,
                     idle_time: std::time::Duration::ZERO,
+                    last_access: Block(0),
                 },
             );
         }

@@ -26,7 +26,7 @@ pub enum StorageMsg {
 
 mod devices;
 pub use devices::{
-    load_devices, Device, DeviceLatencyTable, DeviceSer, DeviceState, BLOCK_SIZE_IN_MB,
+    load_devices, Ap, Device, DeviceLatencyTable, DeviceSer, DeviceState, BLOCK_SIZE_IN_MB,
 };
 
 #[derive(Error, Debug)]
@@ -57,10 +57,16 @@ impl<S, P> StorageStack<S, P> {
                     .get_mut(dev)
                     .ok_or(StorageError::InvalidDevice { id: dev.clone() })?;
 
+                let pattern = if dev_stats.last_access.0.abs_diff(access.block().0) <= 1 {
+                    Ap::Sequential
+                } else {
+                    Ap::Random
+                };
+
                 let until = dev_stats.reserved_until.max(now)
                     + match access {
-                        Access::Read(_) => dev_stats.kind.read(),
-                        Access::Write(_) => dev_stats.kind.write(),
+                        Access::Read(_) => dev_stats.kind.read(BLOCK_SIZE_IN_MB as u64, pattern),
+                        Access::Write(_) => dev_stats.kind.write(BLOCK_SIZE_IN_MB as u64, pattern),
                     };
                 dev_stats.queue.push_back(access.clone());
                 if dev_stats.reserved_until < now {
@@ -70,6 +76,7 @@ impl<S, P> StorageStack<S, P> {
                 dev_stats.total_req += 1;
                 dev_stats.total_q += until.duration_since(now).unwrap();
                 dev_stats.max_q = dev_stats.max_q.max(until.duration_since(now).unwrap());
+                dev_stats.last_access = *access.block();
 
                 let msgs = [(until, Event::Storage(StorageMsg::Finish(access)))].into_iter();
                 match access {

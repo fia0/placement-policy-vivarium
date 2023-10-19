@@ -15,6 +15,9 @@ use std::{
     time::Duration,
 };
 
+/// TODO: Measure PMem with appropriate library
+/// TODO: Mutliple writers
+
 #[derive(Parser)]
 pub struct Options {
     device_path: PathBuf,
@@ -183,6 +186,9 @@ fn run(
             }
             processed_blocks += 1;
             // FIXME: reduce costs
+            // fetching takes around 100ns with comparisons, this might have a
+            // rather large influence with 256b acccess taking only 250ns on
+            // some NVM this might skew the result.
             if now.elapsed() > run_until {
                 break;
             }

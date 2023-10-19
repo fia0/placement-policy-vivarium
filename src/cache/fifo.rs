@@ -1,4 +1,7 @@
-use crate::{Block, Device};
+use crate::{
+    storage_stack::{Ap, BLOCK_SIZE_IN_MB},
+    Block, Device,
+};
 use std::{
     collections::{HashSet, VecDeque},
     time::Duration,
@@ -27,7 +30,9 @@ impl Fifo {
 
 impl Cache for Fifo {
     fn get(&mut self, block: &Block) -> Option<Duration> {
-        self.blocks.get(block).map(|_| self.on_device.read())
+        self.blocks
+            .get(block)
+            .map(|_| self.on_device.read(BLOCK_SIZE_IN_MB as u64, Ap::Random))
     }
 
     fn put(&mut self, block: Block) -> Duration {
@@ -35,7 +40,7 @@ impl Cache for Fifo {
             self.queue.push_front(block.clone());
             self.blocks.insert(block);
         }
-        self.on_device.write()
+        self.on_device.write(BLOCK_SIZE_IN_MB as u64, Ap::Random)
     }
 
     fn clear(&mut self) -> Box<dyn Iterator<Item = Block>> {

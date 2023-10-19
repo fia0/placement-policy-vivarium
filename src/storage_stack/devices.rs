@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::{Access, SimError};
+use crate::{Access, Block, SimError};
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
@@ -61,7 +61,7 @@ impl Device {
     // performance over multiple queue depths, real results are likely to be
     // worse.
     // TODO: Consider block sizes!
-    pub fn read(&self) -> Duration {
+    pub fn read(&self, bs: u64, ap: Ap) -> Duration {
         match self {
             Self::Standard(dev) => {
                 match dev {
@@ -93,13 +93,13 @@ impl Device {
             }
             Device::Custom(dev) => {
                 // TODO: Speed up this query, either, to one catchall hash or something but it's to slow
-                const FIXED_BS: u64 = 4096;
-                dev.0[Op::Read as usize].get(&FIXED_BS).unwrap().0[Ap::Random as usize]
+                // const FIXED_BS: u64 = 4096;
+                dev.0[Op::Read as usize].get(&bs).unwrap().0[ap as usize]
             }
         }
     }
 
-    pub fn write(&self) -> Duration {
+    pub fn write(&self, bs: u64, ap: Ap) -> Duration {
         match self {
             Self::Standard(dev) => match dev {
                 DeviceSer::Intel_Optane_PMem_100 => {
@@ -125,10 +125,7 @@ impl Device {
                 }
                 DeviceSer::Custom(_) => unreachable!(),
             },
-            Device::Custom(dev) => {
-                const FIXED_BS: u64 = 4096;
-                dev.0[Op::Read as usize].get(&FIXED_BS).unwrap().0[Ap::Random as usize]
-            }
+            Device::Custom(dev) => dev.0[Op::Write as usize].get(&bs).unwrap().0[ap as usize],
         }
     }
 
@@ -170,6 +167,8 @@ pub struct DeviceState {
     pub total_q: Duration,
     pub total_req: usize,
     pub idle_time: Duration,
+    // Track the last accessed block to guess access pattern
+    pub last_access: Block,
 }
 
 // How should the lookup table for performance estimation looklike?
@@ -188,6 +187,26 @@ pub struct Latencies([Duration; Ap::LEN as usize]);
 impl DeviceLatencyTable {
     pub fn keys(&self) -> impl Iterator<Item = &u64> + '_ {
         self.0[Op::Read as usize].keys()
+    }
+
+    pub fn add_bs(&mut self, op: Op, bs: u64) {
+        let cursor = self.0[op as usize].lower_bound(std::ops::Bound::Included(&bs));
+        assert!(cursor.key().is_some());
+
+        if cursor.key() == Some(&bs) {
+            // Exact match can be read
+            return;
+        } else {
+            let upper = cursor.key().unwrap().clone();
+            let latencies = cursor.value().unwrap().clone();
+            let (lower, prev_latencies) = cursor.peek_prev().unwrap();
+            let diff = upper - lower;
+            let p_upper = (upper - bs) as f32 / diff as f32;
+            let p_lower = 1.0 - p_upper;
+
+            // Interpolate approximate access time
+            todo!()
+        }
     }
 }
 

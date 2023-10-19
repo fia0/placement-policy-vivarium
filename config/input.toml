@@ -1,47 +1,52 @@
 [results]
 path = "results"
 
-[app.Zipf]
+[app.Batch]
 # The ratio between read & write operations.
 # 0.0 - Only write
 # 1.0 - Only read
-rw = 0.1
-# Theta for Zipfian Distribution
-theta = 0.99
+rw = 1.0
 # Total number of blocks which are present in the storage stack.
-size = 1412096
-batch = 16830
+size = 10240
+batch = 10240
 # How many batches are submitted to the stack.
 iteration = 1000
+
+# [app.Batch.pattern.Zipf]
+# # Theta for Zipfian Distribution
+# theta = 0.99
+# seed = 54321
+
+[app.Batch.pattern.Uniform]
 seed = 54321
 
 [cache]
-algorithm = "Fifo"
+algorithm = "Noop"
 capacity = 128
 device = "DRAM"
 
 # Which devices will be used.
 [devices]
 
-# 460 GiB Optane
-[devices.optane_pmem]
-kind = "Intel_Optane_PMem_100"
-# Total size of device in number of blocks.
-capacity = 117760
-
-# 1 TiB Samsung
-[devices.optane_ssd]
-kind = "Intel_Optane_SSD_DC_P4800X"
-capacity = 245760
-
+# # 460 GiB Optane
+# [devices.optane_pmem]
+# kind = "Intel_Optane_PMem_100"
+# # Total size of device in number of blocks.
+# capacity = 117760
+#
+# # 1 TiB Samsung
+# [devices.optane_ssd]
+# kind = "Intel_Optane_SSD_DC_P4800X"
+# capacity = 245760
+#
 # 4 TiB Micron
 [devices.kioxia_ssd]
 kind = "KIOXIA_CM7"
 capacity = 1048576
 
 [devices.my-own-hdd]
-kind = { Custom = "foo" }
-capacity = 10000
+kind = { Custom = "cluster-old-hdd" }
+capacity = 999999
 
 
 # [devices.spinny_boy]
