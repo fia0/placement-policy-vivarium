@@ -19,7 +19,7 @@ impl PlacementPolicy for Noop {
     fn update(
         &mut self,
         msg: PlacementMsg,
-        devices: &HashMap<String, DeviceState>,
+        devices: &mut HashMap<String, DeviceState>,
         blocks: &HashMap<Block, String>,
         now: SystemTime,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {
@@ -28,7 +28,7 @@ impl PlacementPolicy for Noop {
 
     fn migrate(
         &mut self,
-        devices: &HashMap<String, DeviceState>,
+        devices: &mut HashMap<String, DeviceState>,
         blocks: &HashMap<Block, String>,
         now: SystemTime,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {

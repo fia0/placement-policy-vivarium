@@ -242,7 +242,7 @@ impl Application for BatchApp {
             self.spinner.inc(1);
             self.cur_iteration += 1;
             // Immediately start the next batch.
-            self.start(now)
+            self.start(now + Duration::from_secs(600))
         } else {
             if self.current_reqs.len() == 0 {
                 self.spinner.finish();

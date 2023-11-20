@@ -58,7 +58,7 @@ impl PlacementPolicy for RecencyPolicy {
     fn update(
         &mut self,
         msg: PlacementMsg,
-        devices: &HashMap<String, DeviceState>,
+        devices: &mut HashMap<String, DeviceState>,
         blocks: &HashMap<Block, String>,
         now: SystemTime,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {
@@ -86,7 +86,7 @@ impl PlacementPolicy for RecencyPolicy {
 
     fn migrate(
         &mut self,
-        devices: &HashMap<String, DeviceState>,
+        devices: &mut HashMap<String, DeviceState>,
         blocks: &HashMap<Block, String>,
         now: SystemTime,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {
@@ -111,39 +111,45 @@ impl PlacementPolicy for RecencyPolicy {
         // b_freq * (cost(B) - cost(A)) > cost(A) + cost(B)
         // Check if costs are reduced compared to costs expanded
         let mut msgs = Vec::new();
-        for (disk, disk_idle) in least_idling_disks.iter() {
-            let cur_disk = devices.get(disk).unwrap();
-            for candidate in least_idling_disks.iter().rev().filter(|s| s.1 > *disk_idle) {
-                let state = devices.get(&candidate.0).unwrap();
-
-                for _ in 0..1000 {
+        for (disk_a, disk_idle) in least_idling_disks.iter() {
+            for disk_b in least_idling_disks.iter().rev().filter(|s| s.1 > *disk_idle) {
+                let mut new_blocks_a = Vec::new();
+                let mut new_blocks_b = Vec::new();
+                for _ in 0..500 {
+                    let state = devices.get_mut(&disk_b.0).unwrap();
                     if state.free > 0 {
                         // Space is available for migration and should be used
                         // Migration handled internally on storage stack
                         // Data is blocked until completion
-                        let foo = self.blocks.get_mut(disk).unwrap();
+                        let foo = self.blocks.get_mut(disk_a).unwrap();
                         if foo.is_empty() {
                             continue;
                         }
                         let (block, freq) = foo.pop_max().unwrap();
-                        self.blocks.get_mut(&candidate.0).unwrap().push(block, freq);
+                        self.blocks.get_mut(&disk_b.0).unwrap().push(block, freq);
+                        state.free -= 1;
+                        let cur_disk = devices.get_mut(disk_a).unwrap();
+                        cur_disk.free += 1;
                         msgs.push((
                             now,
                             Event::Storage(crate::storage_stack::StorageMsg::Process(
-                                crate::storage_stack::Step::MoveInit(block, candidate.0.clone()),
+                                crate::storage_stack::Step::MoveInit(block, disk_b.0.clone()),
                             )),
                         ));
                     } else {
-                        let (_, a_block_freq) = self.blocks.get(disk).unwrap().peek_max().unwrap();
-                        let cost_a = cur_disk
+                        let (_, a_block_freq) =
+                            self.blocks.get(disk_a).unwrap().peek_max().unwrap();
+                        let state_a = devices.get(disk_a).unwrap();
+                        let cost_a = state_a
                             .kind
                             .read(BLOCK_SIZE_IN_B as u64, crate::storage_stack::Ap::Random);
-                        let cost_b = state
+                        let state_b = devices.get(&disk_b.0).unwrap();
+                        let cost_b = state_b
                             .kind
                             .read(BLOCK_SIZE_IN_B as u64, crate::storage_stack::Ap::Random);
 
-                        let bar = self.blocks.get(&candidate.0).unwrap();
-                        let (_, b_block_freq) = bar.peek_min().unwrap();
+                        let queue_b = self.blocks.get(&disk_b.0).unwrap();
+                        let (_, b_block_freq) = queue_b.peek_min().unwrap();
 
                         if *a_block_freq as i128
                             * (cost_a.as_micros() as i128 - cost_b.as_micros() as i128)
@@ -151,38 +157,44 @@ impl PlacementPolicy for RecencyPolicy {
                                 * (cost_b.as_micros() as i128 - cost_a.as_micros() as i128)
                             > 2 * cost_a.checked_add(cost_b).unwrap().as_micros() as i128
                         {
-                            dbg!(a_block_freq);
-                            dbg!(b_block_freq);
                             let (a_block, a_block_freq) =
-                                self.blocks.get_mut(disk).unwrap().pop_max().unwrap();
-                            let b_disk = self.blocks.get_mut(&candidate.0).unwrap();
-                            let (b_block, b_block_freq) = b_disk.pop_max().unwrap();
-                            b_disk.push(a_block, a_block_freq);
-                            let a_disk = self.blocks.get_mut(disk).unwrap();
-                            a_disk.push(b_block, b_block_freq);
+                                self.blocks.get_mut(disk_a).unwrap().pop_max().unwrap();
+                            let queue_b = self.blocks.get_mut(&disk_b.0).unwrap();
+                            let (b_block, b_block_freq) = queue_b.pop_min().unwrap();
+                            // println!("Swapping blocks: {} <-> {}", a_block.0, b_block.0);
+                            new_blocks_a.push((b_block, b_block_freq));
+                            new_blocks_b.push((a_block, a_block_freq));
+                            // queue_b.push(a_block, a_block_freq);
+                            // let queue_a = self.blocks.get_mut(disk_a).unwrap();
+                            // queue_a.push(b_block, b_block_freq);
                             msgs.push((
                                 now,
                                 Event::Storage(crate::storage_stack::StorageMsg::Process(
-                                    crate::storage_stack::Step::MoveInit(
-                                        a_block,
-                                        candidate.0.clone(),
-                                    ),
+                                    crate::storage_stack::Step::MoveInit(a_block, disk_b.0.clone()),
                                 )),
                             ));
                             msgs.push((
                                 now,
                                 Event::Storage(crate::storage_stack::StorageMsg::Process(
-                                    crate::storage_stack::Step::MoveInit(b_block, disk.clone()),
+                                    crate::storage_stack::Step::MoveInit(b_block, disk_a.clone()),
                                 )),
                             ));
-                            // println!("Block switching possible... not implemented");
                         }
                     }
+                }
+
+                let queue_a = self.blocks.get_mut(disk_a).unwrap();
+                for b in new_blocks_a {
+                    queue_a.push(b.0, b.1);
+                }
+                let queue_b = self.blocks.get_mut(&disk_b.0).unwrap();
+                for b in new_blocks_b {
+                    queue_b.push(b.0, b.1);
                 }
             }
         }
         Box::new(msgs.into_iter().chain([(
-            now + std::time::Duration::from_secs(600),
+            now + std::time::Duration::from_secs(1800),
             Event::PlacementPolicy(PlacementMsg::Migrate),
         )]))
     }

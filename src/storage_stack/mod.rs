@@ -87,8 +87,6 @@ impl<S> StorageStack<S> {
                 match step {
                     Step::MoveReadFinished(block, to_disk) => {
                         self.finish_access(&Access::Read(block));
-                        self.devices.get_mut(&self.blocks[&block]).unwrap().free += 1;
-                        self.devices.get_mut(&to_disk).unwrap().free -= 1;
                         *self.blocks.get_mut(&block).unwrap() = to_disk;
                         let then = self.queue_access(&Access::Write(block), now)?;
                         self.blocks_on_hold.insert(block, then.0);

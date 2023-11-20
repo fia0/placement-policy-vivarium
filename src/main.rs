@@ -192,7 +192,7 @@ impl<S> PolicySimulator<S> {
                 }
                 Event::PlacementPolicy(msg) => {
                     self.policy
-                        .update(msg, &self.stack.devices, &self.stack.blocks, self.now)
+                        .update(msg, &mut self.stack.devices, &self.stack.blocks, self.now)
                 }
                 Event::Terminate => break,
             };

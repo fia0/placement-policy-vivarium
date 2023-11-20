@@ -76,7 +76,7 @@ impl ResultCollector {
     pub fn main(mut self) -> Result<(), std::io::Error> {
         for op in ["write", "read"].into_iter() {
             self.application.write_fmt(format_args!(
-                "{op}_total,{op}_avg,{op}_max,{op}_p90,{op}_p95,{op}_p99,",
+                "{op}_total,{op}_avg,{op}_max,{op}_p90,{op}_p95,{op}_p99",
             ))?;
         }
         self.application.write(b"\n")?;
@@ -99,7 +99,7 @@ impl ResultCollector {
                             .unwrap_or(0);
                         let max = vals.all.iter().map(|d| d.as_micros()).max().unwrap_or(0);
                         self.application.write_fmt(format_args!(
-                            "{},{},{},{},{},{},",
+                            "{},{},{},{},{},{}",
                             total,
                             avg,
                             max,
@@ -140,12 +140,12 @@ impl ResultCollector {
 \t\tTotal requests: {total}
 \t\tAverage latency: {}
 \t\tMaximum latency: {}
-\t\tUsed: {}
+\t\tFree: {}
 \t\tSize: {total_size}
 \t\tIdle time: {idle}%",
                             avg.human_duration(),
                             max.human_duration(),
-                            total_size - free_blocks,
+                            free_blocks,
                         )
                     }
                 }

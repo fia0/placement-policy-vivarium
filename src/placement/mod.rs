@@ -35,13 +35,13 @@ pub trait PlacementPolicy {
     fn update(
         &mut self,
         msg: PlacementMsg,
-        devices: &HashMap<String, DeviceState>,
+        devices: &mut HashMap<String, DeviceState>,
         blocks: &HashMap<Block, String>,
         now: SystemTime,
     ) -> Box<dyn Iterator<Item = (SystemTime, Event)>>;
     fn migrate(
         &mut self,
-        devices: &HashMap<String, DeviceState>,
+        devices: &mut HashMap<String, DeviceState>,
         blocks: &HashMap<Block, String>,
         now: SystemTime,
     ) -> Box<dyn Iterator<Item = (SystemTime, Event)>>;
