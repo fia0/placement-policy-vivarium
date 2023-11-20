@@ -26,6 +26,7 @@ use application::Application;
 use clap::{Parser, Subcommand};
 use crossbeam::channel::Sender;
 use indicatif::HumanBytes;
+use placement::{PlacementMsg, PlacementPolicy};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use result_csv::ResMsg;
 use storage_stack::{StorageError, StorageMsg, StorageStack};
@@ -41,13 +42,14 @@ use crate::{
 mod application;
 mod cache;
 mod config;
+mod placement;
 mod result_csv;
 mod storage_stack;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct Block(usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Access {
     Read(Block),
     Write(Block),
@@ -94,25 +96,19 @@ pub struct BlockState {
     replicated: Option<Device>,
 }
 
-// /// An event which is noted to happen sometime in the future.
-// #[derive(Debug)]
-// pub enum Event {
-//     Submit(Access, Issuer),
-//     Finished(SystemTime, Access, Origin, Issuer),
-//     // // Call the placement policy once and reinject the new start time.
-//     // PlacementPolicy,
-// }
-
 #[derive(Debug, PartialEq)]
 pub enum Event {
     Cache(CacheMsg),
     Storage(StorageMsg),
     Application(Access),
+    PlacementPolicy(PlacementMsg),
+    Terminate,
 }
 
 /// Core unit of the simulation.
-pub struct PolicySimulator<S, P> {
-    stack: StorageStack<S, P>,
+pub struct PolicySimulator<S> {
+    stack: StorageStack<S>,
+    pub policy: Box<dyn PlacementPolicy>,
     application: Box<dyn Application>,
     now: SystemTime,
     // Ordered Map, system time is priority.
@@ -124,7 +120,7 @@ pub struct PolicySimulator<S, P> {
     ),
 }
 
-impl<S, P> PolicySimulator<S, P> {
+impl<S> PolicySimulator<S> {
     /// Distribute initial blocks in the storage stack. This is done entirely
     /// randomly with a fixed seed.
     fn prepare(&mut self) {
@@ -176,6 +172,14 @@ impl<S, P> PolicySimulator<S, P> {
         {
             self.insert_event(time, ev)
         }
+
+        // Startup migration policy
+        for ev in self
+            .policy
+            .init(&self.stack.devices, &self.stack.blocks, self.now)
+        {
+            self.insert_event(ev.0, ev.1)
+        }
         while let Some((then, event)) = self.events.pop_first() {
             // Step forward to the current timestamp
             self.now = then;
@@ -186,6 +190,11 @@ impl<S, P> PolicySimulator<S, P> {
                     self.application
                         .done(access, self.now, &mut self.results_td.1)
                 }
+                Event::PlacementPolicy(msg) => {
+                    self.policy
+                        .update(msg, &self.stack.devices, &self.stack.blocks, self.now)
+                }
+                Event::Terminate => break,
             };
             for (pit, ev) in events.collect::<Vec<_>>() {
                 self.insert_event(pit, ev);
@@ -335,14 +344,15 @@ fn faux_main() -> Result<(), SimError> {
             }
             std::fs::create_dir_all(&results).unwrap();
 
-            let sim: PolicySimulator<(), ()> = PolicySimulator {
+            let sim: PolicySimulator<()> = PolicySimulator {
                 stack: StorageStack {
                     blocks: [].into(),
                     devices: config.devices(&custom_devices)?,
                     state: (),
-                    policy: (),
                     cache: config.cache(&custom_devices)?,
+                    blocks_on_hold: Default::default(),
                 },
+                policy: Box::new(placement::RecencyPolicy::new()),
                 application: config.app.build(),
                 now: std::time::UNIX_EPOCH,
                 events: BTreeMap::new(),

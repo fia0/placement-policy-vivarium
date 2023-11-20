@@ -125,6 +125,8 @@ impl ResultCollector {
                         let total = dev.total_req;
                         let avg = dev.total_q.div_f32(dev.total_req as f32);
                         let max = dev.max_q;
+                        let free_blocks = dev.free;
+                        let total_size = dev.total;
                         let idle = (dev.idle_time.as_micros() / (total_runtime.as_micros() / 10000))
                             as f32
                             / 100f32;
@@ -138,9 +140,12 @@ impl ResultCollector {
 \t\tTotal requests: {total}
 \t\tAverage latency: {}
 \t\tMaximum latency: {}
+\t\tUsed: {}
+\t\tSize: {total_size}
 \t\tIdle time: {idle}%",
                             avg.human_duration(),
                             max.human_duration(),
+                            total_size - free_blocks,
                         )
                     }
                 }

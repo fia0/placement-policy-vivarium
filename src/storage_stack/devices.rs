@@ -12,6 +12,7 @@ use strum::EnumIter;
 /// This file contains a definition of available storage devices.
 
 pub const BLOCK_SIZE_IN_MB: usize = 4;
+pub const BLOCK_SIZE_IN_B: usize = 4194304;
 
 #[allow(non_camel_case_types)]
 #[derive(Debug, Hash, PartialEq, Clone)]
@@ -94,7 +95,7 @@ impl Device {
             Device::Custom(dev) => {
                 // TODO: Speed up this query, either, to one catchall hash or something but it's to slow
                 // const FIXED_BS: u64 = 4096;
-                dev.0[Op::Read as usize].get(&bs).unwrap().0[ap as usize]
+                dev.0[Op::Read as usize].get(&(bs)).unwrap().0[ap as usize]
             }
         }
     }
@@ -125,33 +126,9 @@ impl Device {
                 }
                 DeviceSer::Custom(_) => unreachable!(),
             },
-            Device::Custom(dev) => dev.0[Op::Write as usize].get(&bs).unwrap().0[ap as usize],
+            Device::Custom(dev) => dev.0[Op::Write as usize].get(&(bs)).unwrap().0[ap as usize],
         }
     }
-
-    // /// Number of blocks a single device can at maximum hold.
-    // fn capacity(&self) -> usize {
-    //     match self {
-    //         // 1 TB max assumed (more is possible i know)
-    //         //                    TB   GB     MB
-    //         Device::OptanePMem => 1 * 1024 * 1024 / BLOCK_SIZE_IN_MB,
-    //         // 1.6 TB max
-    //         //                    GB     MB
-    //         Device::OptaneSSD => 1600 * 1000 / BLOCK_SIZE_IN_MB,
-    //         // 3.2 TB max
-    //         //                      GB     MB
-    //         Device::SamsungZSSD => 3200 * 1000 / BLOCK_SIZE_IN_MB,
-    //         // 30.72 TB max
-    //         //                      GB       MB
-    //         Device::MicronTLCSSD => 30720 * 1000 / BLOCK_SIZE_IN_MB,
-    //         // 30 TB max assumed (there is higher)
-    //         //                    TB    GB     MB
-    //         Device::GenericHDD => 30 * 1024 * 1024 / BLOCK_SIZE_IN_MB,
-    //         // 32 GB max (set limitation due to impl on client)
-    //         //              GB   MB
-    //         Device::DRAM => 32 * 1024 / BLOCK_SIZE_IN_MB,
-    //     }
-    // }
 }
 
 pub struct DeviceState {

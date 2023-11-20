@@ -7,7 +7,7 @@ path = "results"
 # 1.0 - Only read
 rw = 1.0
 # Total number of blocks which are present in the storage stack.
-size = 10240
+size = 153600
 batch = 10240
 # How many batches are submitted to the stack.
 iteration = 1000
@@ -42,7 +42,7 @@ device = "DRAM"
 # 4 TiB Micron
 [devices.kioxia_ssd]
 kind = "KIOXIA_CM7"
-capacity = 1048576
+capacity = 50_000
 
 [devices.my-own-hdd]
 kind = { Custom = "cluster-old-hdd" }

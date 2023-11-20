@@ -247,6 +247,7 @@ impl Application for BatchApp {
             if self.current_reqs.len() == 0 {
                 self.spinner.finish();
                 println!("Application finished.");
+                return Box::new([(now, Event::Terminate)].into_iter());
             }
             Box::new([].into_iter())
         }
