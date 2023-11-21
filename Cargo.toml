@@ -11,7 +11,7 @@ crossbeam = { version = "0.8.2", features = ["crossbeam-channel"] }
 human-repr = "1.1.0"
 indicatif = "0.17.7"
 rand = "0.8.5"
-serde = { version= "1.0.188", features= ["serde_derive"] }
+serde = { version = "1.0.188", features = ["serde_derive"] }
 strum = { version = "0.25.0", features = ["derive"] }
 thiserror = "1.0.48"
 toml = "0.8.0"
@@ -20,5 +20,8 @@ libc = "0.2.149"
 byte-unit = "4.0.19"
 colored = "2.0.4"
 csv = "1.3.0"
-duration-str = { version = "0.7.0", features = ["time"], default-features = false }
+duration-str = { version = "0.7.0", features = [
+    "time",
+    "serde",
+], default-features = false }
 priority-queue = "1.3.2"

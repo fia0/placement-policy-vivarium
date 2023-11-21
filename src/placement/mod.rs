@@ -1,12 +1,39 @@
-use std::{collections::HashMap, time::SystemTime};
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime},
+};
 
 use crate::{storage_stack::DeviceState, Block, Event};
 
 mod example;
 mod noop;
 
+use duration_str::deserialize_duration;
 pub use example::RecencyPolicy;
 pub use noop::Noop;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+pub enum PlacementConfig {
+    Frequency {
+        #[serde(deserialize_with = "deserialize_duration")]
+        interval: Duration,
+        reactiveness: usize,
+    },
+    Noop,
+}
+
+impl PlacementConfig {
+    pub fn build(&self) -> Box<dyn PlacementPolicy> {
+        match self {
+            PlacementConfig::Frequency {
+                interval,
+                reactiveness,
+            } => Box::new(RecencyPolicy::new(*interval, *reactiveness)),
+            PlacementConfig::Noop => Box::new(Noop {}),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum PlacementMsg {

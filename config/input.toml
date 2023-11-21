@@ -5,16 +5,17 @@ path = "results"
 # The ratio between read & write operations.
 # 0.0 - Only write
 # 1.0 - Only read
-rw = 1.0
+rw = 0.9
 # Total number of blocks which are present in the storage stack.
-size = 153600
+size = 256_000
 # How many batches are submitted to the stack.
-batch = 5120
-iteration = 100
+batch = 10_240
+iteration = 200
+interval = "120s"
 
 [app.Batch.pattern.Zipf]
 # Theta for Zipfian Distribution
-theta = 0.5
+theta = 0.7
 seed = 54321
 
 # [app.Batch.pattern.Uniform]
@@ -25,28 +26,26 @@ algorithm = "Noop"
 capacity = 128
 device = "DRAM"
 
+[placement.Frequency]
+interval = "5min"
+reactiveness = 20
+
+
 # Which devices will be used.
 [devices]
 
-# # 460 GiB Optane
 # [devices.optane_pmem]
 # kind = "Intel_Optane_PMem_100"
 # # Total size of device in number of blocks.
-# capacity = 117760
-#
-# # 1 TiB Samsung
+# capacity = 20_000
+
 # [devices.optane_ssd]
 # kind = "Intel_Optane_SSD_DC_P4800X"
-# capacity = 245760
-#
-# 4 TiB Micron
+# capacity = 100_000
+
 [devices.kioxia_ssd_0]
 kind = "KIOXIA_CM7"
-capacity = 50_000
-
-[devices.kioxia_ssd_1]
-kind = "KIOXIA_CM7"
-capacity = 50_000
+capacity = 20_000
 
 [devices.my-own-hdd]
 kind = { Custom = "cluster-old-hdd" }

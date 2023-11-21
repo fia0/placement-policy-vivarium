@@ -256,6 +256,7 @@ checksum = "5e172e85f305d6a442b250bf40667ffcb91a24f52c9a1ca59e2fa991ac9b7790"
 dependencies = [
  "nom",
  "rust_decimal",
+ "serde",
  "thiserror",
  "time",
 ]

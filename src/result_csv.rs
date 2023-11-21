@@ -3,7 +3,7 @@ use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::PathBuf,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use crossbeam::channel::{Receiver, Sender};
@@ -17,6 +17,7 @@ use crate::storage_stack::DeviceState;
 
 pub enum ResMsg {
     Application {
+        now: SystemTime,
         writes: OpsInfo,
         reads: OpsInfo,
     },
@@ -74,10 +75,14 @@ impl ResultCollector {
     }
 
     pub fn main(mut self) -> Result<(), std::io::Error> {
-        for op in ["write", "read"].into_iter() {
+        self.application.write(b"now,")?;
+        for (idx, op) in ["write", "read"].into_iter().enumerate() {
             self.application.write_fmt(format_args!(
                 "{op}_total,{op}_avg,{op}_max,{op}_p90,{op}_p95,{op}_p99",
             ))?;
+            if idx != 1 {
+                self.application.write(b",")?;
+            }
         }
         self.application.write(b"\n")?;
         self.devices.write_fmt(format_args!(
@@ -86,7 +91,11 @@ impl ResultCollector {
 
         while let Ok(msg) = self.rx.recv() {
             match msg {
-                ResMsg::Application { writes, reads } => {
+                ResMsg::Application { now, writes, reads } => {
+                    self.application.write_fmt(format_args!(
+                        "{},",
+                        now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+                    ))?;
                     for mut vals in [writes, reads].into_iter() {
                         vals.all.sort();
                         let total = vals.all.len() as u128;

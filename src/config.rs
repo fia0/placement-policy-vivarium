@@ -1,6 +1,7 @@
 use crate::{
     application::{Application, BatchApp, BatchConfig},
     cache::{Cache, CacheLogic, Fifo, Lru, Noop},
+    placement::PlacementConfig,
     storage_stack::{Device, DeviceLatencyTable, DeviceState},
     Block, SimError,
 };
@@ -16,6 +17,7 @@ pub struct Config {
     pub app: App,
     pub devices: HashMap<String, DeviceConfig>,
     pub cache: Option<CacheConfig>,
+    pub placement: PlacementConfig,
 }
 
 #[derive(Deserialize)]

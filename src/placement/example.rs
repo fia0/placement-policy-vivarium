@@ -1,4 +1,7 @@
-use std::{collections::HashMap, time::SystemTime};
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime},
+};
 
 use priority_queue::DoublePriorityQueue;
 
@@ -14,15 +17,21 @@ use super::{PlacementMsg, PlacementPolicy};
 pub struct RecencyPolicy {
     // accesses: HashMap<Block, u64>,
     blocks: HashMap<String, DoublePriorityQueue<Block, u64>>,
+    idle_disks: HashMap<String, Duration>,
+    reactiveness: usize,
+    interval: Duration,
 
     low_threshold: f32,
     high_threshold: f32,
 }
 
 impl RecencyPolicy {
-    pub fn new() -> Self {
+    pub fn new(interval: Duration, reactiveness: usize) -> Self {
         RecencyPolicy {
             blocks: HashMap::new(),
+            idle_disks: HashMap::new(),
+            reactiveness,
+            interval,
             low_threshold: 0.,
             high_threshold: 0.,
         }
@@ -39,6 +48,7 @@ impl PlacementPolicy for RecencyPolicy {
         for dev in devices {
             self.blocks
                 .insert(dev.0.clone(), DoublePriorityQueue::new());
+            self.idle_disks.insert(dev.0.clone(), Duration::ZERO);
         }
         for block in blocks {
             self.blocks
@@ -48,7 +58,7 @@ impl PlacementPolicy for RecencyPolicy {
         }
         Box::new(
             [(
-                now + std::time::Duration::from_secs(600),
+                now + self.interval,
                 Event::PlacementPolicy(PlacementMsg::Migrate),
             )]
             .into_iter(),
@@ -90,6 +100,15 @@ impl PlacementPolicy for RecencyPolicy {
         blocks: &HashMap<Block, String>,
         now: SystemTime,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {
+        // update idle disks numbers
+        let mut least_idling_disks = Vec::new();
+        for dev in devices.iter() {
+            let idle = self.idle_disks.get_mut(dev.0).unwrap();
+            least_idling_disks.push((dev.0.clone(), dev.1.idle_time.saturating_sub(*idle)));
+            *idle = dev.1.idle_time;
+        }
+        least_idling_disks.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
         let mut eviction_ready_disk = Vec::new();
         for (device_id, device_state) in devices.iter() {
             if device_state.total as f32 * self.high_threshold < device_state.free as f32 {
@@ -97,12 +116,6 @@ impl PlacementPolicy for RecencyPolicy {
                 eviction_ready_disk.push(device_id.clone());
             }
         }
-
-        let mut least_idling_disks = devices
-            .iter()
-            .map(|(device_id, device_state)| (device_id.clone(), device_state.idle_time))
-            .collect::<Vec<_>>();
-        least_idling_disks.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
         // Cost estimation based on the obeserved frequency and potentially movement of data from the other disk.
 
@@ -115,9 +128,26 @@ impl PlacementPolicy for RecencyPolicy {
             for disk_b in least_idling_disks.iter().rev().filter(|s| s.1 > *disk_idle) {
                 let mut new_blocks_a = Vec::new();
                 let mut new_blocks_b = Vec::new();
-                for _ in 0..500 {
+
+                let state_a = devices.get(disk_a).unwrap();
+                let cost_a = state_a
+                    .kind
+                    .read(BLOCK_SIZE_IN_B as u64, crate::storage_stack::Ap::Random);
+                let state_b = devices.get(&disk_b.0).unwrap();
+                let cost_b = state_b
+                    .kind
+                    .write(BLOCK_SIZE_IN_B as u64, crate::storage_stack::Ap::Random);
+
+                for _ in 0..self.reactiveness {
+                    let (_, a_block_freq) = self.blocks.get(disk_a).unwrap().peek_max().unwrap();
+                    let (_, b_block_freq) = self.blocks.get(&disk_b.0).unwrap().peek_min().unwrap();
+
                     let state = devices.get_mut(&disk_b.0).unwrap();
-                    if state.free > 0 {
+                    if state.free > 0
+                        && *a_block_freq as i128
+                            * (cost_a.as_micros() as i128 - cost_b.as_micros() as i128)
+                            > cost_a.checked_add(cost_b).unwrap().as_micros() as i128
+                    {
                         // Space is available for migration and should be used
                         // Migration handled internally on storage stack
                         // Data is blocked until completion
@@ -137,19 +167,9 @@ impl PlacementPolicy for RecencyPolicy {
                             )),
                         ));
                     } else {
-                        let (_, a_block_freq) =
-                            self.blocks.get(disk_a).unwrap().peek_max().unwrap();
-                        let state_a = devices.get(disk_a).unwrap();
-                        let cost_a = state_a
-                            .kind
-                            .read(BLOCK_SIZE_IN_B as u64, crate::storage_stack::Ap::Random);
-                        let state_b = devices.get(&disk_b.0).unwrap();
-                        let cost_b = state_b
-                            .kind
-                            .read(BLOCK_SIZE_IN_B as u64, crate::storage_stack::Ap::Random);
-
-                        let queue_b = self.blocks.get(&disk_b.0).unwrap();
-                        let (_, b_block_freq) = queue_b.peek_min().unwrap();
+                        if self.blocks.get(disk_a).unwrap().is_empty() {
+                            break;
+                        }
 
                         if *a_block_freq as i128
                             * (cost_a.as_micros() as i128 - cost_b.as_micros() as i128)
@@ -182,7 +202,6 @@ impl PlacementPolicy for RecencyPolicy {
                         }
                     }
                 }
-
                 let queue_a = self.blocks.get_mut(disk_a).unwrap();
                 for b in new_blocks_a {
                     queue_a.push(b.0, b.1);
@@ -194,7 +213,7 @@ impl PlacementPolicy for RecencyPolicy {
             }
         }
         Box::new(msgs.into_iter().chain([(
-            now + std::time::Duration::from_secs(1800),
+            now + self.interval,
             Event::PlacementPolicy(PlacementMsg::Migrate),
         )]))
     }

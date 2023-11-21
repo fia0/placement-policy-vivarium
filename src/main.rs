@@ -352,7 +352,7 @@ fn faux_main() -> Result<(), SimError> {
                     cache: config.cache(&custom_devices)?,
                     blocks_on_hold: Default::default(),
                 },
-                policy: Box::new(placement::RecencyPolicy::new()),
+                policy: config.placement.build(),
                 application: config.app.build(),
                 now: std::time::UNIX_EPOCH,
                 events: BTreeMap::new(),

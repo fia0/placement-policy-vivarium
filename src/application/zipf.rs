@@ -4,6 +4,7 @@ use std::{
 };
 
 use crossbeam::channel::Sender;
+use duration_str::deserialize_duration;
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::{distributions::Uniform, prelude::Distribution, rngs::StdRng, Rng, SeedableRng};
 use serde::Deserialize;
@@ -75,6 +76,8 @@ pub struct BatchConfig {
     /// before a new batch can be issued.
     pub batch: usize,
     pub pattern: DistConfig,
+    #[serde(deserialize_with = "deserialize_duration")]
+    interval: Duration,
 }
 
 #[derive(Deserialize, Debug)]
@@ -117,6 +120,7 @@ pub struct BatchApp {
     rng: StdRng,
     current_reqs: HashMap<Access, (SystemTime, usize)>,
     batch: usize,
+    interval: Duration,
     rw: f64,
     write_latency: Vec<Duration>,
     read_latency: Vec<Duration>,
@@ -152,6 +156,7 @@ impl BatchApp {
             dist: config.pattern.build(config.size),
             current_reqs: HashMap::new(),
             rng: StdRng::seed_from_u64(config.pattern.seed().unwrap_or(0)),
+            interval: config.interval,
             rw: config.rw,
             batch: config.batch,
             write_latency: vec![],
@@ -223,6 +228,7 @@ impl Application for BatchApp {
             let mut reads = Vec::with_capacity(self.batch);
             std::mem::swap(&mut self.read_latency, &mut reads);
             tx.send(ResMsg::Application {
+                now,
                 writes: OpsInfo { all: writes },
                 reads: OpsInfo { all: reads },
             })
@@ -242,7 +248,7 @@ impl Application for BatchApp {
             self.spinner.inc(1);
             self.cur_iteration += 1;
             // Immediately start the next batch.
-            self.start(now + Duration::from_secs(600))
+            self.start(now + self.interval)
         } else {
             if self.current_reqs.len() == 0 {
                 self.spinner.finish();
