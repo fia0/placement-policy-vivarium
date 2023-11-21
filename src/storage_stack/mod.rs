@@ -1,13 +1,9 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    time::{Duration, SystemTime},
-};
+use std::{collections::HashMap, time::SystemTime};
 
 use thiserror::Error;
 
 use crate::{
     cache::{CacheLogic, CacheMsg},
-    placement::PlacementPolicy,
     Access, Block, Event,
 };
 
@@ -160,7 +156,6 @@ impl<S> StorageStack<S> {
             + match access {
                 Access::Read(_) => dev_stats.kind.read(BLOCK_SIZE_IN_B as u64, pattern),
                 Access::Write(_) => dev_stats.kind.write(BLOCK_SIZE_IN_B as u64, pattern),
-                _ => unreachable!(),
             };
         dev_stats.queue.push_back(access.clone());
         if dev_stats.reserved_until < now {
@@ -174,7 +169,6 @@ impl<S> StorageStack<S> {
         Ok(match access {
             Access::Read(b) => (until, Event::Cache(CacheMsg::ReadFinished(*b))),
             Access::Write(b) => (until, Event::Cache(CacheMsg::WriteFinished(*b))),
-            _ => unreachable!(),
         })
     }
 

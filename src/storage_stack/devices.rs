@@ -175,11 +175,11 @@ impl DeviceLatencyTable {
             return;
         } else {
             let upper = cursor.key().unwrap().clone();
-            let latencies = cursor.value().unwrap().clone();
-            let (lower, prev_latencies) = cursor.peek_prev().unwrap();
+            let _latencies = cursor.value().unwrap().clone();
+            let (lower, _prev_latencies) = cursor.peek_prev().unwrap();
             let diff = upper - lower;
             let p_upper = (upper - bs) as f32 / diff as f32;
-            let p_lower = 1.0 - p_upper;
+            let _p_lower = 1.0 - p_upper;
 
             // Interpolate approximate access time
             todo!()
@@ -229,7 +229,6 @@ pub fn load_devices(
 #[derive(Deserialize)]
 pub struct DeviceRecord {
     block_size: u64,
-    blocks: u64,
     avg_latency_us: u64,
     op: Op,
     pattern: Ap,
@@ -255,31 +254,4 @@ pub enum Ap {
     Sequential,
     #[serde(skip)]
     LEN,
-}
-
-pub struct BlockSize(usize);
-pub enum AccessMode {
-    /// The previous access on this device has been on an directly neighbored
-    /// location.  For spinning disks this could be on the same sector, for
-    /// flash-based storage on the same chip.
-    SequentialRead,
-    SequentialWrite,
-    /// Definitely identified random access, assumes arbitrary starting position
-    /// of device interna.
-    RandomRead,
-    RandomWrite,
-}
-
-// TODO: How to deal with parallel queues on devices? Currently only sync
-// accesses are simulated but ranged queries etc might be able to exploit sync
-// accesses? Maybe measuring this with 64m blocks is already sufficient?
-//
-// SIDE NOTE: Measuring random read rates with fio's mmap is not reliable large
-// random reads are heavily skewed with even BLOCKSIZE = SIZE being slower than
-// multiple sequential smaller reads/writes. Maybe we need our own probing...
-
-pub trait DeviceLatency {
-    // Perform a lookup.
-    fn access(bs: BlockSize, am: AccessMode) -> Duration;
-    fn preferred_blocksize() -> BlockSize;
 }

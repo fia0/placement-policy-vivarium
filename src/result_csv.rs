@@ -96,7 +96,8 @@ impl ResultCollector {
                         "{},",
                         now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
                     ))?;
-                    for mut vals in [writes, reads].into_iter() {
+
+                    for (idx, mut vals) in [writes, reads].into_iter().enumerate() {
                         vals.all.sort();
                         let total = vals.all.len() as u128;
                         let avg = vals
@@ -125,6 +126,9 @@ impl ResultCollector {
                                 .unwrap_or(&Duration::ZERO)
                                 .as_micros(),
                         ))?;
+                        if idx != 1 {
+                            self.application.write(b",")?;
+                        }
                     }
                     self.application.write(b"\n")?;
                 }
@@ -159,6 +163,7 @@ impl ResultCollector {
                     }
                 }
                 ResMsg::Simulator { total_runtime } => {
+                    dbg!(&total_runtime);
                     println!("Runtime: {}", total_runtime.human_duration());
                     self.sim
                         .write_fmt(format_args!("{}s\n", total_runtime.as_secs_f32()))?;

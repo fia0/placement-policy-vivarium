@@ -9,13 +9,13 @@ rw = 0.9
 # Total number of blocks which are present in the storage stack.
 size = 256_000
 # How many batches are submitted to the stack.
-batch = 10_240
-iteration = 200
-interval = "120s"
+batch = 20_000
+iteration = 100
+interval = "300s"
 
 [app.Batch.pattern.Zipf]
 # Theta for Zipfian Distribution
-theta = 0.7
+theta = 0.8
 seed = 54321
 
 # [app.Batch.pattern.Uniform]
@@ -23,21 +23,21 @@ seed = 54321
 
 [cache]
 algorithm = "Noop"
-capacity = 128
+capacity = 1024
 device = "DRAM"
 
 [placement.Frequency]
-interval = "5min"
-reactiveness = 20
+interval = "15min"
+reactiveness = 400
 
 
 # Which devices will be used.
 [devices]
 
-# [devices.optane_pmem]
-# kind = "Intel_Optane_PMem_100"
-# # Total size of device in number of blocks.
-# capacity = 20_000
+[devices.optane_pmem]
+kind = "Intel_Optane_PMem_100"
+# Total size of device in number of blocks.
+capacity = 20_000
 
 # [devices.optane_ssd]
 # kind = "Intel_Optane_SSD_DC_P4800X"
@@ -45,7 +45,7 @@ reactiveness = 20
 
 [devices.kioxia_ssd_0]
 kind = "KIOXIA_CM7"
-capacity = 20_000
+capacity = 100_000
 
 [devices.my-own-hdd]
 kind = { Custom = "cluster-old-hdd" }

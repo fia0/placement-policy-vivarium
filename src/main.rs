@@ -1,4 +1,3 @@
-#![feature(return_position_impl_trait_in_trait)]
 #![feature(btree_cursors)]
 /// This project contains a rough-edge simulator description of a multi-device
 /// storage stack to try out some migration policies.
@@ -69,31 +68,6 @@ impl Access {
             Access::Write(ref block) => block,
         }
     }
-}
-pub trait Policy {
-    fn new() -> Self;
-    fn update(&mut self, accesses: Vec<Access>) -> State;
-    /// Returns the point in time when the policy is next due to be called for
-    /// evaluating possible actions.
-    fn due() -> SystemTime;
-}
-
-pub enum Action {
-    Replicate(Device),
-    Migrate(Device),
-    Prefetch,
-}
-
-pub struct State {
-    /// Actions which are advised to be executed on the next encountered with the block.
-    hints: HashMap<Block, Action>,
-    /// Actions to be executed instantly when the update finished
-    instant: Vec<Action>,
-}
-
-pub struct BlockState {
-    location: Device,
-    replicated: Option<Device>,
 }
 
 #[derive(Debug, PartialEq)]

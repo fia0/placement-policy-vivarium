@@ -93,14 +93,14 @@ impl DistConfig {
             DistConfig::Zipf { theta, .. } => {
                 Dist::Zipf(ZipfDistribution::new(size, *theta).unwrap())
             }
-            DistConfig::Uniform { seed } => Dist::Uniform(Uniform::new(1, size)),
+            DistConfig::Uniform { seed: _ } => Dist::Uniform(Uniform::new(1, size)),
             DistConfig::Sequential => Dist::Sequential,
         }
     }
 
     pub fn seed(&self) -> Option<u64> {
         match self {
-            DistConfig::Zipf { theta, seed } => Some(*seed),
+            DistConfig::Zipf { theta: _, seed } => Some(*seed),
             DistConfig::Uniform { seed } => Some(*seed),
             DistConfig::Sequential => None,
         }

@@ -2,7 +2,7 @@ use crate::{
     application::{Application, BatchApp, BatchConfig},
     cache::{Cache, CacheLogic, Fifo, Lru, Noop},
     placement::PlacementConfig,
-    storage_stack::{Device, DeviceLatencyTable, DeviceState},
+    storage_stack::{DeviceLatencyTable, DeviceState},
     Block, SimError,
 };
 

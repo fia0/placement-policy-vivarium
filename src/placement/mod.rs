@@ -9,7 +9,7 @@ mod example;
 mod noop;
 
 use duration_str::deserialize_duration;
-pub use example::RecencyPolicy;
+pub use example::FrequencyPolicy;
 pub use noop::Noop;
 use serde::Deserialize;
 
@@ -29,7 +29,7 @@ impl PlacementConfig {
             PlacementConfig::Frequency {
                 interval,
                 reactiveness,
-            } => Box::new(RecencyPolicy::new(*interval, *reactiveness)),
+            } => Box::new(FrequencyPolicy::new(*interval, *reactiveness)),
             PlacementConfig::Noop => Box::new(Noop {}),
         }
     }

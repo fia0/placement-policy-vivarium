@@ -6,7 +6,7 @@ use std::{
 use priority_queue::DoublePriorityQueue;
 
 use crate::{
-    storage_stack::{DeviceState, BLOCK_SIZE_IN_B, BLOCK_SIZE_IN_MB},
+    storage_stack::{DeviceState, BLOCK_SIZE_IN_B},
     Block, Event,
 };
 
@@ -14,31 +14,31 @@ use super::{PlacementMsg, PlacementPolicy};
 
 /// Simple Example policy.
 /// Keeping track of blocks and promoting them eventually.
-pub struct RecencyPolicy {
+pub struct FrequencyPolicy {
     // accesses: HashMap<Block, u64>,
     blocks: HashMap<String, DoublePriorityQueue<Block, u64>>,
     idle_disks: HashMap<String, Duration>,
     reactiveness: usize,
     interval: Duration,
 
-    low_threshold: f32,
-    high_threshold: f32,
+    _low_threshold: f32,
+    _high_threshold: f32,
 }
 
-impl RecencyPolicy {
+impl FrequencyPolicy {
     pub fn new(interval: Duration, reactiveness: usize) -> Self {
-        RecencyPolicy {
+        FrequencyPolicy {
             blocks: HashMap::new(),
             idle_disks: HashMap::new(),
             reactiveness,
             interval,
-            low_threshold: 0.,
-            high_threshold: 0.,
+            _low_threshold: 0.,
+            _high_threshold: 0.,
         }
     }
 }
 
-impl PlacementPolicy for RecencyPolicy {
+impl PlacementPolicy for FrequencyPolicy {
     fn init(
         &mut self,
         devices: &HashMap<String, DeviceState>,
@@ -97,7 +97,7 @@ impl PlacementPolicy for RecencyPolicy {
     fn migrate(
         &mut self,
         devices: &mut HashMap<String, DeviceState>,
-        blocks: &HashMap<Block, String>,
+        _blocks: &HashMap<Block, String>,
         now: SystemTime,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {
         // update idle disks numbers
@@ -109,20 +109,24 @@ impl PlacementPolicy for RecencyPolicy {
         }
         least_idling_disks.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
-        let mut eviction_ready_disk = Vec::new();
-        for (device_id, device_state) in devices.iter() {
-            if device_state.total as f32 * self.high_threshold < device_state.free as f32 {
-                // Move data away from the current disk
-                eviction_ready_disk.push(device_id.clone());
-            }
-        }
+        // TODO: Utilize thresholds? For analysis of new blocks necessary, which is not implemented yet.
+        // let mut eviction_ready_disk = Vec::new();
+        // for (device_id, device_state) in devices.iter() {
+        //     if device_state.total as f32 * self.high_threshold < device_state.free as f32 {
+        //         // Move data away from the current disk
+        //         eviction_ready_disk.push(device_id.clone());
+        //     }
+        // }
 
         // Cost estimation based on the obeserved frequency and potentially movement of data from the other disk.
-
-        // Migrate b from A to B
+        // Migrate a from A to B
         // Do if:
-        // b_freq * (cost(B) - cost(A)) > cost(A) + cost(B)
+        // a_freq * (cost(A) - cost(B)) > cost(A) + cost(B)
         // Check if costs are reduced compared to costs expanded
+        // Similar to a case when swapping two blocks:
+        // a_freq * (cost(A) - cost(B)) + b_freq * (cost(B) - cost(A)) > 2 * cost(A) + cost(B)
+        //
+        // Take note, that costs are simplified and might diff between read/write.
         let mut msgs = Vec::new();
         for (disk_a, disk_idle) in least_idling_disks.iter() {
             for disk_b in least_idling_disks.iter().rev().filter(|s| s.1 > *disk_idle) {
@@ -181,12 +185,8 @@ impl PlacementPolicy for RecencyPolicy {
                                 self.blocks.get_mut(disk_a).unwrap().pop_max().unwrap();
                             let queue_b = self.blocks.get_mut(&disk_b.0).unwrap();
                             let (b_block, b_block_freq) = queue_b.pop_min().unwrap();
-                            // println!("Swapping blocks: {} <-> {}", a_block.0, b_block.0);
                             new_blocks_a.push((b_block, b_block_freq));
                             new_blocks_b.push((a_block, a_block_freq));
-                            // queue_b.push(a_block, a_block_freq);
-                            // let queue_a = self.blocks.get_mut(disk_a).unwrap();
-                            // queue_a.push(b_block, b_block_freq);
                             msgs.push((
                                 now,
                                 Event::Storage(crate::storage_stack::StorageMsg::Process(
