@@ -164,10 +164,13 @@ impl<S> PolicySimulator<S> {
                     self.application
                         .done(access, self.now, &mut self.results_td.1)
                 }
-                Event::PlacementPolicy(msg) => {
-                    self.policy
-                        .update(msg, &mut self.stack.devices, &self.stack.blocks, self.now)
-                }
+                Event::PlacementPolicy(msg) => self.policy.update(
+                    msg,
+                    &mut self.stack.devices,
+                    &self.stack.blocks,
+                    self.now,
+                    &mut self.results_td.1,
+                ),
                 Event::Terminate => break,
             };
             for (pit, ev) in events.collect::<Vec<_>>() {
@@ -180,8 +183,15 @@ impl<S> PolicySimulator<S> {
             self.insert_event(then, ev);
         }
 
-        if let Some((k, _v)) = self.events.last_key_value() {
-            self.now = *k;
+        // Wait until cache is flushed
+        for (k, v) in self.events.iter().rev() {
+            match v {
+                Event::PlacementPolicy(_) => {}
+                _ => {
+                    self.now = *k;
+                    break;
+                }
+            };
         }
 
         {

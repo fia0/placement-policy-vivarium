@@ -1,6 +1,8 @@
 use std::{collections::HashMap, time::SystemTime};
 
-use crate::{storage_stack::DeviceState, Block};
+use crossbeam::channel::Sender;
+
+use crate::{result_csv::ResMsg, storage_stack::DeviceState, Block};
 
 use super::{PlacementMsg, PlacementPolicy};
 
@@ -22,6 +24,7 @@ impl PlacementPolicy for Noop {
         _devices: &mut HashMap<String, DeviceState>,
         _blocks: &HashMap<Block, String>,
         _now: SystemTime,
+        _tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {
         Box::new([].into_iter())
     }
@@ -31,6 +34,7 @@ impl PlacementPolicy for Noop {
         _devices: &mut HashMap<String, DeviceState>,
         _blocks: &HashMap<Block, String>,
         _now: SystemTime,
+        _tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {
         Box::new([].into_iter())
     }

@@ -18,6 +18,7 @@ use crate::storage_stack::DeviceState;
 pub enum ResMsg {
     Application {
         now: SystemTime,
+        interval: Duration,
         writes: OpsInfo,
         reads: OpsInfo,
     },
@@ -27,6 +28,11 @@ pub enum ResMsg {
     },
     Simulator {
         total_runtime: Duration,
+    },
+    Policy {
+        now: SystemTime,
+        /// Number of blocks moved in this iteration
+        moved: usize,
     },
     Done,
 }
@@ -40,6 +46,7 @@ pub struct ResultCollector {
     application: BufWriter<File>,
     devices: BufWriter<File>,
     sim: BufWriter<File>,
+    policy: BufWriter<File>,
 }
 
 impl ResultCollector {
@@ -62,6 +69,12 @@ impl ResultCollector {
                 .write(true)
                 .open(path.join("simulator.csv"))?,
         );
+        let policy = BufWriter::new(
+            OpenOptions::new()
+                .create(true)
+                .write(true)
+                .open(path.join("policy.csv"))?,
+        );
         let (tx, rx) = crossbeam::channel::unbounded();
         Ok((
             Self {
@@ -69,13 +82,14 @@ impl ResultCollector {
                 application,
                 devices,
                 sim,
+                policy,
             },
             tx,
         ))
     }
 
     pub fn main(mut self) -> Result<(), std::io::Error> {
-        self.application.write(b"now,")?;
+        self.application.write(b"now,interval,")?;
         for (idx, op) in ["write", "read"].into_iter().enumerate() {
             self.application.write_fmt(format_args!(
                 "{op}_total,{op}_avg,{op}_max,{op}_p90,{op}_p95,{op}_p99",
@@ -89,12 +103,20 @@ impl ResultCollector {
             "id,total_requests,avg_latency_ns,max_latency_ns,idle_percentage\n"
         ))?;
 
+        self.policy.write(b"now,blocks\n")?;
+
         while let Ok(msg) = self.rx.recv() {
             match msg {
-                ResMsg::Application { now, writes, reads } => {
+                ResMsg::Application {
+                    now,
+                    writes,
+                    reads,
+                    interval,
+                } => {
                     self.application.write_fmt(format_args!(
-                        "{},",
-                        now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+                        "{},{},",
+                        now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+                        interval.as_secs_f32(),
                     ))?;
 
                     for (idx, mut vals) in [writes, reads].into_iter().enumerate() {
@@ -163,12 +185,20 @@ impl ResultCollector {
                     }
                 }
                 ResMsg::Simulator { total_runtime } => {
-                    dbg!(&total_runtime);
                     println!("Runtime: {}", total_runtime.human_duration());
                     self.sim
                         .write_fmt(format_args!("{}s\n", total_runtime.as_secs_f32()))?;
                 }
                 ResMsg::Done => break,
+                ResMsg::Policy { now, moved } => {
+                    self.policy.write_fmt(format_args!(
+                        "{},{}\n",
+                        now.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs_f32(),
+                        moved
+                    ))?;
+                }
             }
         }
         self.application.flush()?;

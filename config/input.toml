@@ -8,10 +8,11 @@ path = "results"
 rw = 0.9
 # Total number of blocks which are present in the storage stack.
 size = 256_000
+
 # How many batches are submitted to the stack.
-batch = 20_000
-iteration = 100
-interval = "300s"
+batch = 500
+iteration = 10_000
+interval = "240ms"
 
 [app.Batch.pattern.Zipf]
 # Theta for Zipfian Distribution
@@ -22,13 +23,13 @@ seed = 54321
 # seed = 54321
 
 [cache]
-algorithm = "Noop"
+algorithm = "Fifo"
 capacity = 1024
 device = "DRAM"
 
 [placement.Frequency]
-interval = "15min"
-reactiveness = 400
+interval = "30min"
+reactiveness = 1000
 
 
 # Which devices will be used.

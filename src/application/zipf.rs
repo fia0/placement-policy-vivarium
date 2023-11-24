@@ -229,6 +229,7 @@ impl Application for BatchApp {
             std::mem::swap(&mut self.read_latency, &mut reads);
             tx.send(ResMsg::Application {
                 now,
+                interval: self.interval,
                 writes: OpsInfo { all: writes },
                 reads: OpsInfo { all: reads },
             })

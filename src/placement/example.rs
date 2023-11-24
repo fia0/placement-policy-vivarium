@@ -3,9 +3,11 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use crossbeam::channel::Sender;
 use priority_queue::DoublePriorityQueue;
 
 use crate::{
+    result_csv::ResMsg,
     storage_stack::{DeviceState, BLOCK_SIZE_IN_B},
     Block, Event,
 };
@@ -71,9 +73,10 @@ impl PlacementPolicy for FrequencyPolicy {
         devices: &mut HashMap<String, DeviceState>,
         blocks: &HashMap<Block, String>,
         now: SystemTime,
+        tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {
         match msg {
-            PlacementMsg::Migrate => return self.migrate(devices, blocks, now),
+            PlacementMsg::Migrate => return self.migrate(devices, blocks, now, tx),
             _ => {}
         }
         let block = msg.block();
@@ -99,6 +102,7 @@ impl PlacementPolicy for FrequencyPolicy {
         devices: &mut HashMap<String, DeviceState>,
         _blocks: &HashMap<Block, String>,
         now: SystemTime,
+        tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {
         // update idle disks numbers
         let mut least_idling_disks = Vec::new();
@@ -128,6 +132,7 @@ impl PlacementPolicy for FrequencyPolicy {
         //
         // Take note, that costs are simplified and might diff between read/write.
         let mut msgs = Vec::new();
+        let mut total_moved: usize = 0;
         for (disk_a, disk_idle) in least_idling_disks.iter() {
             for disk_b in least_idling_disks.iter().rev().filter(|s| s.1 > *disk_idle) {
                 let mut new_blocks_a = Vec::new();
@@ -205,13 +210,20 @@ impl PlacementPolicy for FrequencyPolicy {
                 let queue_a = self.blocks.get_mut(disk_a).unwrap();
                 for b in new_blocks_a {
                     queue_a.push(b.0, b.1);
+                    total_moved += 1;
                 }
                 let queue_b = self.blocks.get_mut(&disk_b.0).unwrap();
                 for b in new_blocks_b {
                     queue_b.push(b.0, b.1);
+                    total_moved += 1;
                 }
             }
         }
+        tx.send(ResMsg::Policy {
+            now,
+            moved: total_moved,
+        })
+        .unwrap();
         Box::new(msgs.into_iter().chain([(
             now + self.interval,
             Event::PlacementPolicy(PlacementMsg::Migrate),

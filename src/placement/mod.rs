@@ -3,11 +3,12 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::{storage_stack::DeviceState, Block, Event};
+use crate::{result_csv::ResMsg, storage_stack::DeviceState, Block, Event};
 
 mod example;
 mod noop;
 
+use crossbeam::channel::Sender;
 use duration_str::deserialize_duration;
 pub use example::FrequencyPolicy;
 pub use noop::Noop;
@@ -65,11 +66,13 @@ pub trait PlacementPolicy {
         devices: &mut HashMap<String, DeviceState>,
         blocks: &HashMap<Block, String>,
         now: SystemTime,
+        tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (SystemTime, Event)>>;
     fn migrate(
         &mut self,
         devices: &mut HashMap<String, DeviceState>,
         blocks: &HashMap<Block, String>,
         now: SystemTime,
+        tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (SystemTime, Event)>>;
 }
