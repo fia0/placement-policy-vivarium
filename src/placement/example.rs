@@ -7,7 +7,7 @@ use crossbeam::channel::Sender;
 use priority_queue::DoublePriorityQueue;
 
 use crate::{
-    result_csv::ResMsg,
+    result_csv::{MovementInfo, ResMsg},
     storage_stack::{DeviceState, BLOCK_SIZE_IN_B},
     Block, Event,
 };
@@ -21,6 +21,7 @@ pub struct FrequencyPolicy {
     blocks: HashMap<String, DoublePriorityQueue<Block, u64>>,
     idle_disks: HashMap<String, Duration>,
     reactiveness: usize,
+    decay: f32,
     interval: Duration,
 
     _low_threshold: f32,
@@ -28,12 +29,13 @@ pub struct FrequencyPolicy {
 }
 
 impl FrequencyPolicy {
-    pub fn new(interval: Duration, reactiveness: usize) -> Self {
+    pub fn new(interval: Duration, reactiveness: usize, decay: f32) -> Self {
         FrequencyPolicy {
             blocks: HashMap::new(),
             idle_disks: HashMap::new(),
             reactiveness,
             interval,
+            decay,
             _low_threshold: 0.,
             _high_threshold: 0.,
         }
@@ -132,7 +134,7 @@ impl PlacementPolicy for FrequencyPolicy {
         //
         // Take note, that costs are simplified and might diff between read/write.
         let mut msgs = Vec::new();
-        let mut total_moved: usize = 0;
+        let mut movements = Vec::new();
         for (disk_a, disk_idle) in least_idling_disks.iter() {
             for disk_b in least_idling_disks.iter().rev().filter(|s| s.1 > *disk_idle) {
                 let mut new_blocks_a = Vec::new();
@@ -165,7 +167,8 @@ impl PlacementPolicy for FrequencyPolicy {
                             continue;
                         }
                         let (block, freq) = foo.pop_max().unwrap();
-                        self.blocks.get_mut(&disk_b.0).unwrap().push(block, freq);
+                        new_blocks_b.push((block, freq));
+                        // self.blocks.get_mut(&disk_b.0).unwrap().push(block, freq);
                         state.free -= 1;
                         let cur_disk = devices.get_mut(disk_a).unwrap();
                         cur_disk.free += 1;
@@ -204,24 +207,41 @@ impl PlacementPolicy for FrequencyPolicy {
                                     crate::storage_stack::Step::MoveInit(b_block, disk_a.clone()),
                                 )),
                             ));
+                        } else {
+                            break;
                         }
                     }
                 }
                 let queue_a = self.blocks.get_mut(disk_a).unwrap();
-                for b in new_blocks_a {
+                for b in new_blocks_a.iter() {
                     queue_a.push(b.0, b.1);
-                    total_moved += 1;
                 }
+                movements.push(MovementInfo {
+                    from: disk_b.0.clone(),
+                    to: disk_a.clone(),
+                    size: new_blocks_a.len(),
+                });
                 let queue_b = self.blocks.get_mut(&disk_b.0).unwrap();
-                for b in new_blocks_b {
+                for b in new_blocks_b.iter() {
                     queue_b.push(b.0, b.1);
-                    total_moved += 1;
                 }
+                movements.push(MovementInfo {
+                    from: disk_a.clone(),
+                    to: disk_b.0.clone(),
+                    size: new_blocks_b.len(),
+                });
             }
         }
+
+        for queue in self.blocks.iter_mut() {
+            for (i, p) in queue.1.iter_mut() {
+                *p = (*p as f32 * (1.0 - self.decay)) as u64;
+            }
+        }
+
         tx.send(ResMsg::Policy {
             now,
-            moved: total_moved,
+            moved: movements,
         })
         .unwrap();
         Box::new(msgs.into_iter().chain([(

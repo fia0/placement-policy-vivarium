@@ -20,6 +20,7 @@ pub enum PlacementConfig {
         #[serde(deserialize_with = "deserialize_duration")]
         interval: Duration,
         reactiveness: usize,
+        decay: f32,
     },
     Noop,
 }
@@ -30,7 +31,8 @@ impl PlacementConfig {
             PlacementConfig::Frequency {
                 interval,
                 reactiveness,
-            } => Box::new(FrequencyPolicy::new(*interval, *reactiveness)),
+                decay,
+            } => Box::new(FrequencyPolicy::new(*interval, *reactiveness, *decay)),
             PlacementConfig::Noop => Box::new(Noop {}),
         }
     }

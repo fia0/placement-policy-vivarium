@@ -32,9 +32,15 @@ pub enum ResMsg {
     Policy {
         now: SystemTime,
         /// Number of blocks moved in this iteration
-        moved: usize,
+        moved: Vec<MovementInfo>,
     },
     Done,
+}
+
+pub struct MovementInfo {
+    pub from: String,
+    pub to: String,
+    pub size: usize,
 }
 
 pub struct OpsInfo {
@@ -92,7 +98,7 @@ impl ResultCollector {
         self.application.write(b"now,interval,")?;
         for (idx, op) in ["write", "read"].into_iter().enumerate() {
             self.application.write_fmt(format_args!(
-                "{op}_total,{op}_avg,{op}_max,{op}_p90,{op}_p95,{op}_p99",
+                "{op}_total,{op}_avg,{op}_max,{op}_median,{op}_p90,{op}_p95,{op}_p99",
             ))?;
             if idx != 1 {
                 self.application.write(b",")?;
@@ -103,7 +109,7 @@ impl ResultCollector {
             "id,total_requests,avg_latency_ns,max_latency_ns,idle_percentage\n"
         ))?;
 
-        self.policy.write(b"now,blocks\n")?;
+        self.policy.write(b"now,from,to,size\n")?;
 
         while let Ok(msg) = self.rx.recv() {
             match msg {
@@ -131,10 +137,14 @@ impl ResultCollector {
                             .unwrap_or(0);
                         let max = vals.all.iter().map(|d| d.as_micros()).max().unwrap_or(0);
                         self.application.write_fmt(format_args!(
-                            "{},{},{},{},{},{}",
+                            "{},{},{},{},{},{},{}",
                             total,
                             avg,
                             max,
+                            vals.all
+                                .percentile(0.5)
+                                .unwrap_or(&Duration::ZERO)
+                                .as_micros(),
                             vals.all
                                 .percentile(0.90)
                                 .unwrap_or(&Duration::ZERO)
@@ -191,13 +201,17 @@ impl ResultCollector {
                 }
                 ResMsg::Done => break,
                 ResMsg::Policy { now, moved } => {
-                    self.policy.write_fmt(format_args!(
-                        "{},{}\n",
-                        now.duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs_f32(),
-                        moved
-                    ))?;
+                    for movement in moved {
+                        self.policy.write_fmt(format_args!(
+                            "{},{},{},{}\n",
+                            now.duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs_f32(),
+                            movement.from,
+                            movement.to,
+                            movement.size
+                        ))?;
+                    }
                 }
             }
         }

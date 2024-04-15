@@ -5,31 +5,32 @@ path = "results"
 # The ratio between read & write operations.
 # 0.0 - Only write
 # 1.0 - Only read
-rw = 0.9
+rw = 0.5
 # Total number of blocks which are present in the storage stack.
 size = 256_000
 
 # How many batches are submitted to the stack.
-batch = 500
-iteration = 10_000
-interval = "240ms"
+batch = 50_000
+iteration = 100
+interval = "1min"
 
 [app.Batch.pattern.Zipf]
 # Theta for Zipfian Distribution
-theta = 0.8
+theta = 0.99
 seed = 54321
 
 # [app.Batch.pattern.Uniform]
 # seed = 54321
 
 [cache]
-algorithm = "Fifo"
+algorithm = "Lru"
 capacity = 1024
 device = "DRAM"
 
 [placement.Frequency]
 interval = "30min"
-reactiveness = 1000
+reactiveness = 100
+decay = 0.05
 
 
 # Which devices will be used.
@@ -51,6 +52,15 @@ capacity = 100_000
 [devices.my-own-hdd]
 kind = { Custom = "cluster-old-hdd" }
 capacity = 999999
+
+# [devices.my-own-hdd1]
+# kind = { Custom = "cluster-old-hdd" }
+# capacity = 999999
+# 
+# 
+# [devices.my-own-hdd2]
+# kind = { Custom = "cluster-old-hdd" }
+# capacity = 999999
 
 
 # [devices.spinny_boy]
