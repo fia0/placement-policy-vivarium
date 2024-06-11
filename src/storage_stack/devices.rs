@@ -167,15 +167,14 @@ impl DeviceLatencyTable {
     }
 
     pub fn add_bs(&mut self, op: Op, bs: u64) {
-        let cursor = self.0[op as usize].lower_bound(std::ops::Bound::Included(&bs));
-        assert!(cursor.key().is_some());
+        let mut cursor = self.0[op as usize].lower_bound(std::ops::Bound::Included(&bs));
+        assert!(cursor.peek_next().is_some());
 
-        if cursor.key() == Some(&bs) {
+        if cursor.peek_next().map(|v| v.0) == Some(&bs) {
             // Exact match can be read
             return;
         } else {
-            let upper = cursor.key().unwrap().clone();
-            let _latencies = cursor.value().unwrap().clone();
+            let (upper, _latencies) = cursor.next().unwrap().clone();
             let (lower, _prev_latencies) = cursor.peek_prev().unwrap();
             let diff = upper - lower;
             let p_upper = (upper - bs) as f32 / diff as f32;

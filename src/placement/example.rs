@@ -234,7 +234,7 @@ impl PlacementPolicy for FrequencyPolicy {
         }
 
         for queue in self.blocks.iter_mut() {
-            for (i, p) in queue.1.iter_mut() {
+            for (_i, p) in queue.1.iter_mut() {
                 *p = (*p as f32 * (1.0 - self.decay)) as u64;
             }
         }
