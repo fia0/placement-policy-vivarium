@@ -1,9 +1,9 @@
 use crate::{result_csv::ResMsg, Access, Block, Event};
 use std::time::SystemTime;
 
-mod zipf;
+mod batch;
+pub use batch::{BatchApp, BatchConfig};
 use crossbeam::channel::Sender;
-pub use zipf::{BatchApp, BatchConfig};
 
 /// An actor which issues and waits for accesses.
 pub trait Application {

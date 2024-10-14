@@ -5,12 +5,12 @@ use std::{
 
 use crate::{result_csv::ResMsg, storage_stack::DeviceState, Block, Event};
 
-mod example;
+mod frequency;
 mod noop;
 
 use crossbeam::channel::Sender;
 use duration_str::deserialize_duration;
-pub use example::FrequencyPolicy;
+pub use frequency::FrequencyPolicy;
 pub use noop::Noop;
 use serde::Deserialize;
 
