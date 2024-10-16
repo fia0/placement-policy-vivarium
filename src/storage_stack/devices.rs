@@ -72,7 +72,7 @@ impl DeviceSer {
                     .custom_flags(libc::O_DIRECT)
                     .open(path)
                     .unwrap(),
-                capacity,
+                capacity * BLOCK_SIZE_IN_B,
             )),
             std => Ok(Device::Standard(std.clone())),
         }
