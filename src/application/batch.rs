@@ -75,6 +75,8 @@ pub struct BatchConfig {
     /// A number of requests to submit at once. All requests have to be finished
     /// before a new batch can be issued.
     pub reqs_per_batch: usize,
+    #[serde(default)]
+    pub real: bool,
     pub pattern: DistConfig,
     #[serde(deserialize_with = "deserialize_duration")]
     interval: Duration,
@@ -126,6 +128,7 @@ pub struct BatchApp {
     read_latency: Vec<Duration>,
     iteration: usize,
     cur_iteration: usize,
+    real: bool,
     // Spinner
     spinner: ProgressBar,
 }
@@ -163,6 +166,7 @@ impl BatchApp {
             read_latency: vec![],
             iteration: config.iteration,
             cur_iteration: 0,
+            real: config.real,
             spinner: ProgressBar::new(config.iteration.try_into().unwrap()).with_style(
                 ProgressStyle::with_template(
                     "[{elapsed_precise}]{wide_bar}{pos:>7}/{len}|ETA in: {eta}|{per_sec}",
@@ -248,6 +252,10 @@ impl Application for BatchApp {
             // );
             self.spinner.inc(1);
             self.cur_iteration += 1;
+
+            if self.real {
+                std::thread::sleep(self.interval);
+            }
             // Immediately start the next batch.
             self.start(now + self.interval)
         } else {

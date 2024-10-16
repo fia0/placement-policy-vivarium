@@ -4,6 +4,7 @@ use std::{
     fs::{File, OpenOptions},
     os::unix::fs::{FileExt, OpenOptionsExt},
     path::{Path, PathBuf},
+    ptr::NonNull,
     time::{Duration, SystemTime},
 };
 
@@ -23,8 +24,10 @@ pub const BLOCK_SIZE_IN_B: usize = BLOCK_SIZE_IN_MB * 1024 * 1024;
 pub enum Device {
     Standard(DeviceSer),
     Custom(DeviceLatencyTable),
-    Real(DiskId, File, usize),
+    Real(DiskId, File, usize, std::ptr::NonNull<u8>),
 }
+
+unsafe impl Send for Device {}
 
 impl std::hash::Hash for Device {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -32,7 +35,7 @@ impl std::hash::Hash for Device {
         match self {
             Device::Standard(device_ser) => device_ser.hash(state),
             Device::Custom(device_latency_table) => device_latency_table.hash(state),
-            Device::Real(disk_id, _, _) => disk_id.hash(state),
+            Device::Real(disk_id, _, _, _) => disk_id.hash(state),
         }
     }
 }
@@ -73,6 +76,16 @@ impl DeviceSer {
                     .open(path)
                     .unwrap(),
                 capacity * BLOCK_SIZE_IN_B,
+                {
+                    let layout = unsafe {
+                        std::alloc::Layout::from_size_align_unchecked(
+                            BLOCK_SIZE_IN_B,
+                            BLOCK_SIZE_IN_B,
+                        )
+                    };
+                    let buf = unsafe { std::alloc::alloc(layout) };
+                    NonNull::new(buf).unwrap()
+                },
             )),
             std => Ok(Device::Standard(std.clone())),
         }
@@ -124,20 +137,22 @@ impl Device {
                 // TODO: Speed up this query, either, to one catchall hash or something but it's to slow
                 dev.0[Op::Read as usize].get(&(bs)).unwrap().0[ap as usize]
             }
-            Self::Real(_, file, size) => {
+            Self::Real(_, file, size, buf) => {
                 let start = std::time::Instant::now();
-                let mut buf = vec![0; BLOCK_SIZE_IN_B];
+                let off = rand::random::<usize>() % (size - bs as usize);
+                let off_align = off - (off % bs as usize);
                 file.write_at(
-                    &mut buf,
-                    (rand::random::<usize>() % (size - BLOCK_SIZE_IN_B)) as u64,
+                    unsafe { std::slice::from_raw_parts(buf.as_ptr(), bs as usize) },
+                    off_align as u64,
                 )
                 .unwrap();
+                // unsafe { std::alloc::dealloc(buf, layout) };
                 start.elapsed()
             }
         }
     }
 
-    pub fn write(&self, bs: u64, ap: Ap) -> Duration {
+    pub fn write(&mut self, bs: u64, ap: Ap) -> Duration {
         match self {
             Self::Standard(dev) => match dev {
                 DeviceSer::Intel_Optane_PMem_100 => {
@@ -164,14 +179,16 @@ impl Device {
                 _ => unreachable!(),
             },
             Self::Custom(dev) => dev.0[Op::Write as usize].get(&(bs)).unwrap().0[ap as usize],
-            Self::Real(_, file, size) => {
+            Self::Real(_, file, size, buf) => {
                 let start = std::time::Instant::now();
-                let mut buf = vec![0; BLOCK_SIZE_IN_B];
+                let off = rand::random::<usize>() % (*size - BLOCK_SIZE_IN_B);
+                let off_align = off - (off % bs as usize);
                 file.read_at(
-                    &mut buf,
-                    (rand::random::<usize>() % (size - BLOCK_SIZE_IN_B)) as u64,
+                    unsafe { std::slice::from_raw_parts_mut(buf.as_mut(), bs as usize) },
+                    off_align as u64,
                 )
                 .unwrap();
+                // unsafe { std::alloc::dealloc(buf, layout) };
                 start.elapsed()
             }
         }
