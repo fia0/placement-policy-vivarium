@@ -74,7 +74,7 @@ pub struct BatchConfig {
     pub iteration: usize,
     /// A number of requests to submit at once. All requests have to be finished
     /// before a new batch can be issued.
-    pub batch: usize,
+    pub reqs_per_batch: usize,
     pub pattern: DistConfig,
     #[serde(deserialize_with = "deserialize_duration")]
     interval: Duration,
@@ -119,7 +119,7 @@ pub struct BatchApp {
     dist: Dist,
     rng: StdRng,
     current_reqs: HashMap<Access, (SystemTime, usize)>,
-    batch: usize,
+    reqs_per_batch: usize,
     interval: Duration,
     rw: f64,
     write_latency: Vec<Duration>,
@@ -158,7 +158,7 @@ impl BatchApp {
             rng: StdRng::seed_from_u64(config.pattern.seed().unwrap_or(0)),
             interval: config.interval,
             rw: config.rw,
-            batch: config.batch,
+            reqs_per_batch: config.reqs_per_batch,
             write_latency: vec![],
             read_latency: vec![],
             iteration: config.iteration,
@@ -180,7 +180,7 @@ impl Application for BatchApp {
 
     fn start(&mut self, now: SystemTime) -> Box<dyn Iterator<Item = (SystemTime, Event)> + '_> {
         let evs = RandomAccessSequence::new(&mut self.rng, &mut self.dist, self.rw)
-            .take(self.batch)
+            .take(self.reqs_per_batch)
             .collect::<Vec<_>>();
         for ev in evs.iter() {
             match self.current_reqs.entry(ev.clone()) {
@@ -223,9 +223,9 @@ impl Application for BatchApp {
             // END OF BATCH
             // TODO: Call Policy now, or do parallel messages (queue) to which a
             // policy can interject? Take oracle from Haura directly?
-            let mut writes = Vec::with_capacity(self.batch);
+            let mut writes = Vec::with_capacity(self.reqs_per_batch);
             std::mem::swap(&mut self.write_latency, &mut writes);
-            let mut reads = Vec::with_capacity(self.batch);
+            let mut reads = Vec::with_capacity(self.reqs_per_batch);
             std::mem::swap(&mut self.read_latency, &mut reads);
             tx.send(ResMsg::Application {
                 now,

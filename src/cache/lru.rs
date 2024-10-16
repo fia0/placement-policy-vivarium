@@ -28,7 +28,7 @@ impl Cache for Lru {
             .find(|x| x.1 == block)
             .map(|x| x.0)
         {
-            assert_eq!(self.entries.remove(idx), Some(block.to_owned()));
+            assert_eq!(self.entries.remove(idx).as_ref(), Some(block));
             self.entries.push_front(block.to_owned());
             Some(
                 self.on_device

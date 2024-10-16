@@ -2,7 +2,7 @@ use crate::{
     application::{Application, BatchApp, BatchConfig},
     cache::{Cache, CacheLogic, Fifo, Lru, Noop},
     placement::PlacementConfig,
-    storage_stack::{DeviceLatencyTable, DeviceState},
+    storage_stack::{DeviceLatencyTable, DeviceState, DiskId},
     Block, SimError,
 };
 
@@ -29,13 +29,13 @@ impl Config {
     pub fn devices(
         &self,
         loaded_devices: &HashMap<String, DeviceLatencyTable>,
-    ) -> Result<HashMap<String, DeviceState>, SimError> {
+    ) -> Result<HashMap<DiskId, DeviceState>, SimError> {
         let mut map = HashMap::new();
-        for (id, dev) in self.devices.iter() {
+        for (id, (_name, dev)) in self.devices.iter().enumerate() {
             map.insert(
-                id.clone(),
+                DiskId(id),
                 DeviceState {
-                    kind: dev.kind.to_device(loaded_devices)?,
+                    kind: dev.kind.to_device(loaded_devices, dev.capacity)?,
                     free: dev.capacity,
                     total: dev.capacity,
                     reserved_until: std::time::UNIX_EPOCH,
@@ -104,11 +104,11 @@ impl CacheConfig {
         match self.algorithm {
             CacheAlgorithm::Lru => Ok(Box::new(Lru::new(
                 self.capacity,
-                self.device.to_device(loaded_devices)?,
+                self.device.to_device(loaded_devices, self.capacity)?,
             ))),
             CacheAlgorithm::Fifo => Ok(Box::new(Fifo::new(
                 self.capacity,
-                self.device.to_device(loaded_devices)?,
+                self.device.to_device(loaded_devices, self.capacity)?,
             ))),
             CacheAlgorithm::Noop => Ok(Box::new(Noop {})),
         }

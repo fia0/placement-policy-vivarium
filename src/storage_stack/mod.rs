@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::SystemTime};
+use std::{collections::HashMap, fmt::Display, time::SystemTime};
 
 use thiserror::Error;
 
@@ -7,9 +7,18 @@ use crate::{
     Access, Block, Event,
 };
 
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
+pub struct DiskId(pub usize);
+
+impl Display for DiskId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("Internal Disk Id ({})", self.0))
+    }
+}
+
 pub struct StorageStack<S> {
-    pub blocks: HashMap<Block, String>,
-    pub devices: HashMap<String, DeviceState>,
+    pub blocks: HashMap<Block, DiskId>,
+    pub devices: HashMap<DiskId, DeviceState>,
     pub cache: CacheLogic,
     pub state: S,
     pub blocks_on_hold: HashMap<Block, SystemTime>,
@@ -24,8 +33,8 @@ pub enum StorageMsg {
 
 #[derive(PartialEq, Debug)]
 pub enum Step {
-    MoveInit(Block, String),
-    MoveReadFinished(Block, String),
+    MoveInit(Block, DiskId),
+    MoveReadFinished(Block, DiskId),
     MoveWriteFinished(Block),
 }
 
@@ -40,7 +49,7 @@ pub enum StorageError {
     #[error("Could not find block {block:?}")]
     InvalidBlock { block: Block },
     #[error("Could not find device {id}")]
-    InvalidDevice { id: String },
+    InvalidDevice { id: DiskId },
 }
 
 impl<S> StorageStack<S> {
@@ -172,7 +181,7 @@ impl<S> StorageStack<S> {
         })
     }
 
-    pub fn insert(&mut self, block: Block, device: String) -> Option<Block> {
+    pub fn insert(&mut self, block: Block, device: DiskId) -> Option<Block> {
         let dev = self.devices.get_mut(&device).unwrap();
         if dev.free > 0 {
             dev.free = dev.free.saturating_sub(1);

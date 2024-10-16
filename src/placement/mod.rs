@@ -3,7 +3,11 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::{result_csv::ResMsg, storage_stack::DeviceState, Block, Event};
+use crate::{
+    result_csv::ResMsg,
+    storage_stack::{DeviceState, DiskId},
+    Block, Event,
+};
 
 mod frequency;
 mod noop;
@@ -58,22 +62,22 @@ impl PlacementMsg {
 pub trait PlacementPolicy {
     fn init(
         &mut self,
-        devices: &HashMap<String, DeviceState>,
-        blocks: &HashMap<Block, String>,
+        devices: &HashMap<DiskId, DeviceState>,
+        blocks: &HashMap<Block, DiskId>,
         now: SystemTime,
     ) -> Box<dyn Iterator<Item = (SystemTime, Event)>>;
     fn update(
         &mut self,
         msg: PlacementMsg,
-        devices: &mut HashMap<String, DeviceState>,
-        blocks: &HashMap<Block, String>,
+        devices: &mut HashMap<DiskId, DeviceState>,
+        blocks: &HashMap<Block, DiskId>,
         now: SystemTime,
         tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (SystemTime, Event)>>;
     fn migrate(
         &mut self,
-        devices: &mut HashMap<String, DeviceState>,
-        blocks: &HashMap<Block, String>,
+        devices: &mut HashMap<DiskId, DeviceState>,
+        blocks: &HashMap<Block, DiskId>,
         now: SystemTime,
         tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (SystemTime, Event)>>;

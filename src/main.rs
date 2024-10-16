@@ -28,7 +28,7 @@ use indicatif::HumanBytes;
 use placement::{PlacementMsg, PlacementPolicy};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use result_csv::ResMsg;
-use storage_stack::{StorageError, StorageMsg, StorageStack};
+use storage_stack::{DiskId, StorageError, StorageMsg, StorageStack};
 use strum::IntoEnumIterator;
 use thiserror::Error;
 
@@ -105,7 +105,7 @@ impl<S> PolicySimulator<S> {
                 .devices
                 .keys()
                 .map(|e| e.clone())
-                .collect::<Vec<String>>();
+                .collect::<Vec<DiskId>>();
             // hash key order not deterministic
             devs.sort();
             devs.shuffle(&mut self.rng);

@@ -8,7 +8,7 @@ use priority_queue::DoublePriorityQueue;
 
 use crate::{
     result_csv::{MovementInfo, ResMsg},
-    storage_stack::{DeviceState, BLOCK_SIZE_IN_B},
+    storage_stack::{DeviceState, DiskId, BLOCK_SIZE_IN_B},
     Block, Event,
 };
 
@@ -18,8 +18,8 @@ use super::{PlacementMsg, PlacementPolicy};
 /// Keeping track of blocks and promoting them eventually.
 pub struct FrequencyPolicy {
     // accesses: HashMap<Block, u64>,
-    blocks: HashMap<String, DoublePriorityQueue<Block, u64>>,
-    idle_disks: HashMap<String, Duration>,
+    blocks: HashMap<DiskId, DoublePriorityQueue<Block, u64>>,
+    idle_disks: HashMap<DiskId, Duration>,
     reactiveness: usize,
     decay: f32,
     interval: Duration,
@@ -45,8 +45,8 @@ impl FrequencyPolicy {
 impl PlacementPolicy for FrequencyPolicy {
     fn init(
         &mut self,
-        devices: &HashMap<String, DeviceState>,
-        blocks: &HashMap<Block, String>,
+        devices: &HashMap<DiskId, DeviceState>,
+        blocks: &HashMap<Block, DiskId>,
         now: SystemTime,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {
         for dev in devices {
@@ -72,8 +72,8 @@ impl PlacementPolicy for FrequencyPolicy {
     fn update(
         &mut self,
         msg: PlacementMsg,
-        devices: &mut HashMap<String, DeviceState>,
-        blocks: &HashMap<Block, String>,
+        devices: &mut HashMap<DiskId, DeviceState>,
+        blocks: &HashMap<Block, DiskId>,
         now: SystemTime,
         tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {
@@ -101,8 +101,8 @@ impl PlacementPolicy for FrequencyPolicy {
 
     fn migrate(
         &mut self,
-        devices: &mut HashMap<String, DeviceState>,
-        _blocks: &HashMap<Block, String>,
+        devices: &mut HashMap<DiskId, DeviceState>,
+        _blocks: &HashMap<Block, DiskId>,
         now: SystemTime,
         tx: &mut Sender<ResMsg>,
     ) -> Box<dyn Iterator<Item = (std::time::SystemTime, crate::Event)>> {

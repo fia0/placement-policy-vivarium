@@ -9,7 +9,7 @@ use std::{
 use crossbeam::channel::{Receiver, Sender};
 use human_repr::HumanDuration;
 
-use crate::storage_stack::DeviceState;
+use crate::storage_stack::{DeviceState, DiskId};
 
 /// This module collects data from different parts of the program and creates
 /// multiple csv files in the result directory. The results contain information
@@ -23,7 +23,7 @@ pub enum ResMsg {
         reads: OpsInfo,
     },
     Device {
-        map: HashMap<String, DeviceState>,
+        map: HashMap<DiskId, DeviceState>,
         total_runtime: Duration,
     },
     Simulator {
@@ -38,8 +38,8 @@ pub enum ResMsg {
 }
 
 pub struct MovementInfo {
-    pub from: String,
-    pub to: String,
+    pub from: DiskId,
+    pub to: DiskId,
     pub size: usize,
 }
 

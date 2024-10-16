@@ -1,7 +1,9 @@
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     error::Error,
-    path::Path,
+    fs::{File, OpenOptions},
+    os::unix::fs::{FileExt, OpenOptionsExt},
+    path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
 
@@ -9,16 +11,30 @@ use crate::{Access, Block, SimError};
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
+use super::DiskId;
+
 /// This file contains a definition of available storage devices.
 
 pub const BLOCK_SIZE_IN_MB: usize = 4;
-pub const BLOCK_SIZE_IN_B: usize = 4194304;
+pub const BLOCK_SIZE_IN_B: usize = BLOCK_SIZE_IN_MB * 1024 * 1024;
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Hash, PartialEq, Clone)]
+#[derive(Debug)]
 pub enum Device {
     Standard(DeviceSer),
     Custom(DeviceLatencyTable),
+    Real(DiskId, File, usize),
+}
+
+impl std::hash::Hash for Device {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        match self {
+            Device::Standard(device_ser) => device_ser.hash(state),
+            Device::Custom(device_latency_table) => device_latency_table.hash(state),
+            Device::Real(disk_id, _, _) => disk_id.hash(state),
+        }
+    }
 }
 
 #[allow(non_camel_case_types)]
@@ -33,12 +49,14 @@ pub enum DeviceSer {
     DRAM,
     KIOXIA_CM7,
     Custom(String),
+    Real(PathBuf),
 }
 
 impl DeviceSer {
     pub fn to_device(
         &self,
         loaded_devices: &HashMap<String, DeviceLatencyTable>,
+        capacity: usize,
     ) -> Result<Device, SimError> {
         match self {
             DeviceSer::Custom(id) => loaded_devices
@@ -46,6 +64,16 @@ impl DeviceSer {
                 .cloned()
                 .ok_or(SimError::MissingCustomDevice(id.clone()))
                 .map(|d| Device::Custom(d)),
+            DeviceSer::Real(path) => Ok(Device::Real(
+                DiskId(loaded_devices.len()),
+                OpenOptions::new()
+                    .write(true)
+                    .read(true)
+                    .custom_flags(libc::O_DIRECT)
+                    .open(path)
+                    .unwrap(),
+                capacity,
+            )),
             std => Ok(Device::Standard(std.clone())),
         }
     }
@@ -89,13 +117,22 @@ impl Device {
                     DeviceSer::KIOXIA_CM7 => {
                         Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (11.4f32 * 1024f32))
                     }
-                    DeviceSer::Custom(_) => unreachable!(),
+                    _ => unimplemented!(),
                 }
             }
             Device::Custom(dev) => {
                 // TODO: Speed up this query, either, to one catchall hash or something but it's to slow
-                // const FIXED_BS: u64 = 4096;
                 dev.0[Op::Read as usize].get(&(bs)).unwrap().0[ap as usize]
+            }
+            Self::Real(_, file, size) => {
+                let start = std::time::Instant::now();
+                let mut buf = vec![0; BLOCK_SIZE_IN_B];
+                file.write_at(
+                    &mut buf,
+                    (rand::random::<usize>() % (size - BLOCK_SIZE_IN_B)) as u64,
+                )
+                .unwrap();
+                start.elapsed()
             }
         }
     }
@@ -124,9 +161,19 @@ impl Device {
                 DeviceSer::KIOXIA_CM7 => {
                     Duration::from_secs_f32(BLOCK_SIZE_IN_MB as f32 / (4.18f32 * 1024f32))
                 }
-                DeviceSer::Custom(_) => unreachable!(),
+                _ => unreachable!(),
             },
-            Device::Custom(dev) => dev.0[Op::Write as usize].get(&(bs)).unwrap().0[ap as usize],
+            Self::Custom(dev) => dev.0[Op::Write as usize].get(&(bs)).unwrap().0[ap as usize],
+            Self::Real(_, file, size) => {
+                let start = std::time::Instant::now();
+                let mut buf = vec![0; BLOCK_SIZE_IN_B];
+                file.read_at(
+                    &mut buf,
+                    (rand::random::<usize>() % (size - BLOCK_SIZE_IN_B)) as u64,
+                )
+                .unwrap();
+                start.elapsed()
+            }
         }
     }
 }
