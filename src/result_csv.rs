@@ -121,7 +121,9 @@ impl ResultCollector {
                 } => {
                     self.application.write_fmt(format_args!(
                         "{},{},",
-                        now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+                        now.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs_f32(),
                         interval.as_secs_f32(),
                     ))?;
 
@@ -166,7 +168,9 @@ impl ResultCollector {
                 }
                 ResMsg::Device { map, total_runtime } => {
                     println!("Device stats:");
-                    for (id, dev) in map.iter() {
+                    let mut sorted_devices = map.iter().collect::<Vec<(&DiskId, &DeviceState)>>();
+                    sorted_devices.sort_by(|x, y| x.0 .0.cmp(&y.0 .0));
+                    for (id, dev) in sorted_devices.iter() {
                         let total = dev.total_req;
                         let avg = dev.total_q.div_f32(dev.total_req as f32);
                         let max = dev.max_q;

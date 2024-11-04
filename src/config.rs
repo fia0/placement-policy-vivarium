@@ -35,7 +35,9 @@ impl Config {
             map.insert(
                 DiskId(id),
                 DeviceState {
-                    kind: dev.kind.to_device(loaded_devices, dev.capacity)?,
+                    kind: dev
+                        .kind
+                        .to_device(DiskId(id), loaded_devices, dev.capacity)?,
                     free: dev.capacity,
                     total: dev.capacity,
                     reserved_until: std::time::UNIX_EPOCH,
@@ -104,11 +106,13 @@ impl CacheConfig {
         match self.algorithm {
             CacheAlgorithm::Lru => Ok(Box::new(Lru::new(
                 self.capacity,
-                self.device.to_device(loaded_devices, self.capacity)?,
+                self.device
+                    .to_device(DiskId(rand::random()), loaded_devices, self.capacity)?,
             ))),
             CacheAlgorithm::Fifo => Ok(Box::new(Fifo::new(
                 self.capacity,
-                self.device.to_device(loaded_devices, self.capacity)?,
+                self.device
+                    .to_device(DiskId(rand::random()), loaded_devices, self.capacity)?,
             ))),
             CacheAlgorithm::Noop => Ok(Box::new(Noop {})),
         }

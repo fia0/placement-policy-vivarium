@@ -1,4 +1,7 @@
-use crate::{storage_stack::BLOCK_SIZE_IN_MB, Block, Device};
+use crate::{
+    storage_stack::{BLOCK_SIZE_IN_B, BLOCK_SIZE_IN_MB},
+    Block, Device,
+};
 use std::collections::VecDeque;
 
 use super::Cache;
@@ -32,7 +35,7 @@ impl Cache for Lru {
             self.entries.push_front(block.to_owned());
             Some(
                 self.on_device
-                    .read(BLOCK_SIZE_IN_MB as u64, crate::storage_stack::Ap::Random),
+                    .read(BLOCK_SIZE_IN_B as u64, crate::storage_stack::Ap::Random),
             )
         } else {
             None

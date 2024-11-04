@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     error::Error,
     fs::{File, OpenOptions},
+    io::Read,
     os::unix::fs::{FileExt, OpenOptionsExt},
     path::{Path, PathBuf},
     ptr::NonNull,
@@ -9,6 +10,7 @@ use std::{
 };
 
 use crate::{Access, Block, SimError};
+use rand::prelude::Distribution;
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
@@ -24,21 +26,20 @@ pub const BLOCK_SIZE_IN_B: usize = BLOCK_SIZE_IN_MB * 1024 * 1024;
 pub enum Device {
     Standard(DeviceSer),
     Custom(DeviceLatencyTable),
-    Real(DiskId, File, usize, std::ptr::NonNull<u8>),
+    Formula(Parameters),
+    Real(File, usize, std::ptr::NonNull<u8>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+pub struct Parameters {
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    e: f32,
 }
 
 unsafe impl Send for Device {}
-
-impl std::hash::Hash for Device {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        core::mem::discriminant(self).hash(state);
-        match self {
-            Device::Standard(device_ser) => device_ser.hash(state),
-            Device::Custom(device_latency_table) => device_latency_table.hash(state),
-            Device::Real(disk_id, _, _, _) => disk_id.hash(state),
-        }
-    }
-}
 
 #[allow(non_camel_case_types)]
 #[derive(Deserialize, Serialize, Debug, Hash, PartialEq, Clone, EnumIter)]
@@ -52,12 +53,14 @@ pub enum DeviceSer {
     DRAM,
     KIOXIA_CM7,
     Custom(String),
+    CustomFormula(String),
     Real(PathBuf),
 }
 
 impl DeviceSer {
     pub fn to_device(
         &self,
+        disk_id: DiskId,
         loaded_devices: &HashMap<String, DeviceLatencyTable>,
         capacity: usize,
     ) -> Result<Device, SimError> {
@@ -68,7 +71,6 @@ impl DeviceSer {
                 .ok_or(SimError::MissingCustomDevice(id.clone()))
                 .map(|d| Device::Custom(d)),
             DeviceSer::Real(path) => Ok(Device::Real(
-                DiskId(loaded_devices.len()),
                 OpenOptions::new()
                     .write(true)
                     .read(true)
@@ -87,6 +89,21 @@ impl DeviceSer {
                     NonNull::new(buf).unwrap()
                 },
             )),
+            DeviceSer::CustomFormula(path) => {
+                let mut file = std::fs::OpenOptions::new().read(true).open(path).unwrap();
+                let mut content = String::new();
+                file.read_to_string(&mut content).unwrap();
+                let raw = content.lines().skip(1).next().unwrap();
+                let [_, _, a, b, c, d, e] = raw
+                    .split(',')
+                    .map(|a| a.parse::<f32>().unwrap())
+                    .collect::<Vec<f32>>()[..]
+                else {
+                    unimplemented!()
+                };
+
+                Ok(Device::Formula(Parameters { a, b, c, d, e }))
+            }
             std => Ok(Device::Standard(std.clone())),
         }
     }
@@ -103,7 +120,7 @@ impl Device {
     // performance over multiple queue depths, real results are likely to be
     // worse.
     // TODO: Consider block sizes!
-    pub fn read(&self, bs: u64, ap: Ap) -> Duration {
+    pub fn read(&mut self, bs: u64, ap: Ap) -> Duration {
         match self {
             Self::Standard(dev) => {
                 match dev {
@@ -137,17 +154,27 @@ impl Device {
                 // TODO: Speed up this query, either, to one catchall hash or something but it's to slow
                 dev.0[Op::Read as usize].get(&(bs)).unwrap().0[ap as usize]
             }
-            Self::Real(_, file, size, buf) => {
+            Self::Real(file, size, buf) => {
                 let start = std::time::Instant::now();
-                let off = rand::random::<usize>() % (size - bs as usize);
+                let off = rand::random::<usize>() % (*size - bs as usize);
                 let off_align = off - (off % bs as usize);
-                file.write_at(
-                    unsafe { std::slice::from_raw_parts(buf.as_ptr(), bs as usize) },
+                file.read_at(
+                    unsafe { std::slice::from_raw_parts_mut(buf.as_mut(), bs as usize) },
                     off_align as u64,
                 )
                 .unwrap();
                 // unsafe { std::alloc::dealloc(buf, layout) };
                 start.elapsed()
+            }
+            Self::Formula(param) => {
+                let mut rng = rand::thread_rng();
+                let pct = rand::distributions::Uniform::new_inclusive(0.0, 1.0).sample(&mut rng);
+                dbg!(Duration::from_nanos(
+                    (param.a
+                        * ((pct * param.c + param.d) / (1.0 - pct + param.e))
+                            .log(std::f32::consts::E)
+                        + param.b) as u64,
+                ))
             }
         }
     }
@@ -179,17 +206,20 @@ impl Device {
                 _ => unreachable!(),
             },
             Self::Custom(dev) => dev.0[Op::Write as usize].get(&(bs)).unwrap().0[ap as usize],
-            Self::Real(_, file, size, buf) => {
+            Self::Real(file, size, buf) => {
                 let start = std::time::Instant::now();
-                let off = rand::random::<usize>() % (*size - BLOCK_SIZE_IN_B);
+                let off = rand::random::<usize>() % (*size - bs as usize);
                 let off_align = off - (off % bs as usize);
-                file.read_at(
+                file.write_at(
                     unsafe { std::slice::from_raw_parts_mut(buf.as_mut(), bs as usize) },
                     off_align as u64,
                 )
                 .unwrap();
-                // unsafe { std::alloc::dealloc(buf, layout) };
                 start.elapsed()
+            }
+            Self::Formula(param) => {
+                // TODO: Actually do write separately
+                self.read(bs, ap)
             }
         }
     }
@@ -295,6 +325,11 @@ pub struct DeviceRecord {
     avg_latency_us: u64,
     op: Op,
     pattern: Ap,
+}
+
+pub struct FormulaRecord {
+    block_size: u64,
+    op: Op,
 }
 
 #[derive(Deserialize)]

@@ -1,5 +1,5 @@
 use crate::{
-    storage_stack::{Ap, BLOCK_SIZE_IN_MB},
+    storage_stack::{Ap, BLOCK_SIZE_IN_B, BLOCK_SIZE_IN_MB},
     Block, Device,
 };
 use std::{
@@ -32,7 +32,7 @@ impl Cache for Fifo {
     fn get(&mut self, block: &Block) -> Option<Duration> {
         self.blocks
             .get(block)
-            .map(|_| self.on_device.read(BLOCK_SIZE_IN_MB as u64, Ap::Random))
+            .map(|_| self.on_device.read(BLOCK_SIZE_IN_B as u64, Ap::Random))
     }
 
     fn put(&mut self, block: Block) -> Duration {

@@ -141,7 +141,7 @@ impl PlacementPolicy for FrequencyPolicy {
                 let mut new_blocks_b = Vec::new();
 
                 // FIXME: These operations should be replaced with hypotheticals for actual runs.
-                let state_a = devices.get(disk_a).unwrap();
+                let state_a = devices.get_mut(disk_a).unwrap();
                 let cost_a = state_a
                     .kind
                     .read(BLOCK_SIZE_IN_B as u64, crate::storage_stack::Ap::Random);
