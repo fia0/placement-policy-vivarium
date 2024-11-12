@@ -1,8 +1,5 @@
-use crate::{
-    storage_stack::{BLOCK_SIZE_IN_B, BLOCK_SIZE_IN_MB},
-    Block, Device,
-};
-use std::collections::VecDeque;
+use crate::{storage_stack::DeviceAccessParams, Block, Device};
+use std::{collections::VecDeque, time::Duration};
 
 use super::Cache;
 
@@ -23,7 +20,7 @@ impl Lru {
 }
 
 impl Cache for Lru {
-    fn get(&mut self, block: &Block) -> Option<std::time::Duration> {
+    fn get(&mut self, block: &Block) -> Option<Duration> {
         if let Some(idx) = self
             .entries
             .iter()
@@ -33,21 +30,17 @@ impl Cache for Lru {
         {
             assert_eq!(self.entries.remove(idx).as_ref(), Some(block));
             self.entries.push_front(block.to_owned());
-            Some(
-                self.on_device
-                    .read(BLOCK_SIZE_IN_B as u64, crate::storage_stack::Ap::Random),
-            )
+            Some(Duration::ZERO)
         } else {
             None
         }
     }
 
-    fn put(&mut self, block: Block) -> std::time::Duration {
+    fn put(&mut self, block: Block) -> Duration {
         if self.get(&block).is_none() {
             self.entries.push_front(block);
         }
-        self.on_device
-            .write(BLOCK_SIZE_IN_MB as u64, crate::storage_stack::Ap::Random)
+        Duration::ZERO
     }
 
     fn clear(&mut self) -> Box<dyn Iterator<Item = Block>> {

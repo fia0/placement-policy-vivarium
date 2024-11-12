@@ -5,55 +5,55 @@ path = "results"
 # The ratio between read & write operations.
 # 0.0 - Only write
 # 1.0 - Only read
-rw = 0.5
+rw = 1.0
 # Total number of blocks which are present in the storage stack.
-size = 1_000
+size = 1_512
 
 # How many reqs are submitted to the stack per batch.
-reqs_per_batch = 100
-iteration = 100
-interval = "3s"
+reqs_per_batch = 2560
+iteration = 1000
+interval = "0s"
 
-[app.Batch.pattern.Zipf]
-# Theta for Zipfian Distribution
-theta = 0.99
+#[app.Batch.pattern.Zipf]
+## Theta for Zipfian Distribution
+#theta = 0.99
+#seed = 54321
+
+[app.Batch.pattern.Uniform]
 seed = 54321
 
-# [app.Batch.pattern.Uniform]
-# seed = 54321
-
 [cache]
-algorithm = "Lru"
-capacity = 32
-device = "DRAM"
+algorithm = "Noop"
+capacity = 1
+device = "bress-vol1"
 
-[placement.Frequency]
-interval = "30min"
-reactiveness = 100
-decay = 0.05
+#[placement.Frequency]
+#interval = "30min"
+#reactiveness = 100
+#decay = 0.05
 
-#[placement.Noop]
+[placement.Noop]
 
 
 # Which devices will be used.
 [devices]
 
-[devices.optane_pmem]
-kind = "Intel_Optane_PMem_100"
-# Total size of device in number of blocks.
-capacity = 20_000
+#[devices.optane_pmem]
+#kind = "Intel_Optane_PMem_100"
+## Total size of device in number of blocks.
+#capacity = 20_000
 
 # [devices.optane_ssd]
 # kind = "Intel_Optane_SSD_DC_P4800X"
 # capacity = 100_000
 
-[devices.kioxia_ssd_0]
-kind = "KIOXIA_CM7"
-capacity = 100_000
+# [devices.kioxia_ssd_0]
+# kind = "KIOXIA_CM7"
+# capacity = 100_000
 
 [devices.my-own-hdd]
-kind = { Custom = "cluster-old-hdd" }
-capacity = 999999
+kind = "bress-vol1"
+capacity = 2_000
 
 # [devices.my-own-hdd1]
 # kind = { Custom = "cluster-old-hdd" }

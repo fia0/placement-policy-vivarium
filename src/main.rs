@@ -24,7 +24,6 @@ use std::{
 use application::Application;
 use clap::{Parser, Subcommand};
 use crossbeam::channel::Sender;
-use indicatif::HumanBytes;
 use placement::{PlacementMsg, PlacementPolicy};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use result_csv::ResMsg;
@@ -35,7 +34,7 @@ use thiserror::Error;
 use crate::{
     cache::CacheMsg,
     config::App,
-    storage_stack::{load_devices, Device, DeviceSer},
+    storage_stack::{load_devices, Device},
 };
 
 mod application;
@@ -278,16 +277,8 @@ fn faux_main() -> Result<(), SimError> {
         Commands::Devices => {
             // Print out all devices
             println!("Available devices:\n");
-            for dev in DeviceSer::iter() {
-                println!("\t{dev:?}",);
-            }
-            for (id, dev) in load_devices(&args.add_device_path)?.iter() {
-                println!(
-                    "\t{id} (block sizes: {:?})",
-                    dev.keys()
-                        .map(|b| format!("{}", HumanBytes(*b)))
-                        .collect::<Vec<_>>()
-                )
+            for (id, _dev) in load_devices(&args.add_device_path)?.iter() {
+                println!("\t{id}",)
             }
             Ok(())
         }

@@ -8,7 +8,7 @@ use priority_queue::DoublePriorityQueue;
 
 use crate::{
     result_csv::{MovementInfo, ResMsg},
-    storage_stack::{DeviceState, DiskId, BLOCK_SIZE_IN_B},
+    storage_stack::{DeviceAccessParams, DeviceState, DiskId},
     Block, Event,
 };
 
@@ -142,13 +142,9 @@ impl PlacementPolicy for FrequencyPolicy {
 
                 // FIXME: These operations should be replaced with hypotheticals for actual runs.
                 let state_a = devices.get_mut(disk_a).unwrap();
-                let cost_a = state_a
-                    .kind
-                    .read(BLOCK_SIZE_IN_B as u64, crate::storage_stack::Ap::Random);
+                let cost_a = state_a.kind.sample(&DeviceAccessParams::read());
                 let state_b = devices.get_mut(&disk_b.0).unwrap();
-                let cost_b = state_b
-                    .kind
-                    .write(BLOCK_SIZE_IN_B as u64, crate::storage_stack::Ap::Random);
+                let cost_b = state_b.kind.sample(&DeviceAccessParams::write());
 
                 for _ in 0..self.reactiveness {
                     let (_, a_block_freq) = self.blocks.get(disk_a).unwrap().peek_max().unwrap();

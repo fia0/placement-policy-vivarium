@@ -2,11 +2,10 @@ use crate::{
     application::{Application, BatchApp, BatchConfig},
     cache::{Cache, CacheLogic, Fifo, Lru, Noop},
     placement::PlacementConfig,
-    storage_stack::{DeviceLatencyTable, DeviceState, DiskId},
+    storage_stack::{to_device, DeviceLatencyTable, DeviceState, DiskId},
     Block, SimError,
 };
 
-use crate::storage_stack::DeviceSer;
 use serde::Deserialize;
 use std::collections::{HashMap, VecDeque};
 use strum::EnumIter;
@@ -35,18 +34,17 @@ impl Config {
             map.insert(
                 DiskId(id),
                 DeviceState {
-                    kind: dev
-                        .kind
-                        .to_device(DiskId(id), loaded_devices, dev.capacity)?,
+                    kind: to_device(&dev.kind, loaded_devices, dev.capacity)?,
                     free: dev.capacity,
                     total: dev.capacity,
                     reserved_until: std::time::UNIX_EPOCH,
-                    queue: VecDeque::new(),
+                    submission_queue: VecDeque::new(),
+                    max_queue_len: 128,
                     total_q: std::time::Duration::ZERO,
                     total_req: 0,
                     max_q: std::time::Duration::ZERO,
                     idle_time: std::time::Duration::ZERO,
-                    last_access: Block(0),
+                    current_queue_len: 0,
                 },
             );
         }
@@ -80,14 +78,14 @@ impl App {
 
 #[derive(Deserialize)]
 pub struct DeviceConfig {
-    kind: DeviceSer,
+    kind: String,
     capacity: usize,
 }
 
 #[derive(Deserialize)]
 pub struct CacheConfig {
     algorithm: CacheAlgorithm,
-    device: DeviceSer,
+    device: String,
     capacity: usize,
 }
 
@@ -106,13 +104,11 @@ impl CacheConfig {
         match self.algorithm {
             CacheAlgorithm::Lru => Ok(Box::new(Lru::new(
                 self.capacity,
-                self.device
-                    .to_device(DiskId(rand::random()), loaded_devices, self.capacity)?,
+                to_device(&self.device, loaded_devices, self.capacity)?,
             ))),
             CacheAlgorithm::Fifo => Ok(Box::new(Fifo::new(
                 self.capacity,
-                self.device
-                    .to_device(DiskId(rand::random()), loaded_devices, self.capacity)?,
+                to_device(&self.device, loaded_devices, self.capacity)?,
             ))),
             CacheAlgorithm::Noop => Ok(Box::new(Noop {})),
         }

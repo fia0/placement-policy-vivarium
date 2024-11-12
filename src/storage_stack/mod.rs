@@ -40,8 +40,7 @@ pub enum Step {
 
 mod devices;
 pub use devices::{
-    load_devices, Ap, Device, DeviceLatencyTable, DeviceSer, DeviceState, BLOCK_SIZE_IN_B,
-    BLOCK_SIZE_IN_MB,
+    load_devices, to_device, Device, DeviceAccessParams, DeviceLatencyTable, DeviceState,
 };
 
 #[derive(Error, Debug)]
@@ -68,15 +67,18 @@ impl<S> StorageStack<S> {
                     ));
                 }
                 // Otherwise proceed
-                let then = self.queue_access(&access, now)?;
-                Ok(Box::new(
-                    [(then.0, Event::Storage(StorageMsg::Finish(access)))]
-                        .into_iter()
-                        .chain([then].into_iter()),
-                ))
+                if let Some(then) = self.queue_access(&access, now, None)? {
+                    Ok(Box::new(
+                        [(then.0, Event::Storage(StorageMsg::Finish(access)))]
+                            .into_iter()
+                            .chain(then.1),
+                    ))
+                } else {
+                    Ok(Box::new([].into_iter()))
+                }
             }
             StorageMsg::Finish(access) => {
-                self.finish_access(&access);
+                let new_events = self.finish_access(&access, now)?;
                 Ok(Box::new(
                     [(
                         now,
@@ -85,65 +87,87 @@ impl<S> StorageStack<S> {
                             Access::Write(b) => crate::placement::PlacementMsg::Written(b),
                         }),
                     )]
-                    .into_iter(),
+                    .into_iter()
+                    .chain(new_events),
                 ))
             }
-            StorageMsg::Process(step) => {
-                match step {
-                    Step::MoveReadFinished(block, to_disk) => {
-                        self.finish_access(&Access::Read(block));
-                        *self.blocks.get_mut(&block).unwrap() = to_disk;
-                        let then = self.queue_access(&Access::Write(block), now)?;
-                        self.blocks_on_hold.insert(block, then.0);
-                        return Ok(Box::new(
-                            [(
-                                then.0,
-                                Event::Storage(StorageMsg::Process(Step::MoveWriteFinished(block))),
-                            )]
-                            .into_iter(),
-                        ));
-                    }
-                    Step::MoveInit(block, to_disk) => {
-                        let then = self.queue_access(&Access::Read(block), now)?;
-                        self.blocks_on_hold.insert(block, then.0);
-                        return Ok(Box::new(
-                            [(
-                                then.0,
-                                Event::Storage(StorageMsg::Process(Step::MoveReadFinished(
-                                    block, to_disk,
-                                ))),
-                            )]
-                            .into_iter(),
-                        ));
-                    }
-                    Step::MoveWriteFinished(block) => {
-                        self.blocks_on_hold.remove(&block);
-                        self.finish_access(&Access::Write(block));
-                    }
+            StorageMsg::Process(step) => match step {
+                Step::MoveReadFinished(block, to_disk) => {
+                    let new_events = self.finish_access(&Access::Read(block), now)?;
+                    *self.blocks.get_mut(&block).unwrap() = to_disk;
+                    todo!();
+                    // if let Some(then) = self.queue_access(&Access::Write(block), now)? {
+                    //     self.blocks_on_hold.insert(block, then.0);
+                    //     Ok(Box::new(
+                    //         [(
+                    //             then.0,
+                    //             Event::Storage(StorageMsg::Process(Step::MoveWriteFinished(block))),
+                    //         )]
+                    //         .into_iter()
+                    //         .chain(new_events),
+                    //     ))
+                    // }
                 }
-                Ok(Box::new([].into_iter()))
-            }
+                Step::MoveInit(block, to_disk) => {
+                    todo!();
+                    // if let Some(then) = self.queue_access(&Access::Read(block), now)? {
+                    //     self.blocks_on_hold.insert(block, then.0);
+                    //     Ok(Box::new(
+                    //         [(
+                    //             then.0,
+                    //             Event::Storage(StorageMsg::Process(Step::MoveReadFinished(
+                    //                 block, to_disk,
+                    //             ))),
+                    //         )]
+                    //         .into_iter(),
+                    //     ))
+                    // }
+                }
+                Step::MoveWriteFinished(block) => {
+                    self.blocks_on_hold.remove(&block);
+                    let new_events = self.finish_access(&Access::Write(block), now)?;
+                    Ok(new_events)
+                }
+            },
         }
     }
 
-    // /// An operation has finished and can be removed from the device queue.
-    // pub fn finish(&mut self, dev: String) {
-    //     self.devices.get_mut(&dev).unwrap().queue.pop_front();
-    // }
-
-    fn finish_access(&mut self, access: &Access) {
-        self.devices
+    fn finish_access(
+        &mut self,
+        access: &Access,
+        now: SystemTime,
+    ) -> Result<Box<dyn Iterator<Item = (SystemTime, Event)>>, StorageError> {
+        let dev = self
+            .devices
             .get_mut(self.blocks.get(access.block()).unwrap())
-            .unwrap()
-            .queue
-            .pop_front();
+            .unwrap();
+
+        // One access finished refill if possible.
+        dev.current_queue_len -= 1;
+
+        let tmp = dev.submission_queue.pop_front().map(|a| {
+            let (then, evs) = self.queue_access(&a.1, now, Some(a.0)).unwrap().unwrap();
+            Box::new(
+                [(then, Event::Storage(StorageMsg::Finish(a.1)))]
+                    .into_iter()
+                    .chain(evs),
+            )
+        });
+
+        if let Some(it) = tmp {
+            Ok(it)
+        } else {
+            Ok(Box::new([].into_iter()))
+        }
     }
 
     fn queue_access(
         &mut self,
         access: &Access,
         now: SystemTime,
-    ) -> Result<(SystemTime, Event), StorageError> {
+        originally_queued_at: Option<SystemTime>,
+    ) -> Result<Option<(SystemTime, Box<dyn Iterator<Item = (SystemTime, Event)>>)>, StorageError>
+    {
         let dev = self
             .blocks
             .get(access.block())
@@ -155,30 +179,53 @@ impl<S> StorageStack<S> {
             .get_mut(dev)
             .ok_or(StorageError::InvalidDevice { id: dev.clone() })?;
 
-        let pattern = if dev_stats.last_access.0.abs_diff(access.block().0) <= 1 {
-            Ap::Sequential
-        } else {
-            Ap::Random
-        };
+        // How to queue requests:
+        //
+        // 1. If queue is not full:
+        //     - sample
+        //     - enqueue
+        //     - update reserved_until to minimum of finished timestamp and current value
+        // 2. If queue is full:
+        //     -
 
-        let until = dev_stats.reserved_until.max(now)
-            + match access {
-                Access::Read(_) => dev_stats.kind.read(BLOCK_SIZE_IN_B as u64, pattern),
-                Access::Write(_) => dev_stats.kind.write(BLOCK_SIZE_IN_B as u64, pattern),
-            };
-        dev_stats.queue.push_back(access.clone());
-        if dev_stats.reserved_until < now {
-            dev_stats.idle_time += now.duration_since(dev_stats.reserved_until).unwrap();
+        if dev_stats.current_queue_len < dev_stats.max_queue_len {
+            // Enqueue and immediately submit request
+            let until = now
+                + match access {
+                    Access::Read(_) => dev_stats.kind.sample(&DeviceAccessParams::read()),
+                    Access::Write(_) => dev_stats.kind.sample(&DeviceAccessParams::write()),
+                };
+            // If nothing was submitted the device was idling
+            if dev_stats.current_queue_len == 0 {
+                dev_stats.idle_time += now.duration_since(dev_stats.reserved_until).unwrap();
+            }
+            dev_stats.reserved_until = until;
+            dev_stats.current_queue_len += 1;
+            dev_stats.max_q = dev_stats.max_q.max(
+                until
+                    .duration_since(originally_queued_at.unwrap_or(now))
+                    .unwrap(),
+            );
+            dev_stats.total_q += until
+                .duration_since(originally_queued_at.unwrap_or(now))
+                .unwrap();
+            dev_stats.total_req += 1;
+
+            Ok(Some(match access {
+                Access::Read(b) => (
+                    until,
+                    Box::new([(until, Event::Cache(CacheMsg::ReadFinished(*b)))].into_iter()),
+                ),
+                Access::Write(b) => (
+                    until,
+                    Box::new([(until, Event::Cache(CacheMsg::WriteFinished(*b)))].into_iter()),
+                ),
+            }))
+        } else {
+            // Enqueue the access for later revision into the stack
+            dev_stats.submission_queue.push_back((now, access.clone()));
+            Ok(None)
         }
-        dev_stats.reserved_until = until;
-        dev_stats.total_req += 1;
-        dev_stats.total_q += until.duration_since(now).unwrap();
-        dev_stats.max_q = dev_stats.max_q.max(until.duration_since(now).unwrap());
-        dev_stats.last_access = *access.block();
-        Ok(match access {
-            Access::Read(b) => (until, Event::Cache(CacheMsg::ReadFinished(*b))),
-            Access::Write(b) => (until, Event::Cache(CacheMsg::WriteFinished(*b))),
-        })
     }
 
     pub fn insert(&mut self, block: Block, device: DiskId) -> Option<Block> {
