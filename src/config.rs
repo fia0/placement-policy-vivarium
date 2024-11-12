@@ -30,10 +30,11 @@ impl Config {
         loaded_devices: &HashMap<String, DeviceLatencyTable>,
     ) -> Result<HashMap<DiskId, DeviceState>, SimError> {
         let mut map = HashMap::new();
-        for (id, (_name, dev)) in self.devices.iter().enumerate() {
+        for (id, (name, dev)) in self.devices.iter().enumerate() {
             map.insert(
                 DiskId(id),
                 DeviceState {
+                    name: name.to_string(),
                     kind: to_device(&dev.kind, loaded_devices, dev.capacity)?,
                     free: dev.capacity,
                     total: dev.capacity,

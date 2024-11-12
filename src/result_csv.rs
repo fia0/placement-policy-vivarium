@@ -170,7 +170,7 @@ impl ResultCollector {
                     println!("Device stats:");
                     let mut sorted_devices = map.iter().collect::<Vec<(&DiskId, &DeviceState)>>();
                     sorted_devices.sort_by(|x, y| x.0 .0.cmp(&y.0 .0));
-                    for (id, dev) in sorted_devices.iter() {
+                    for (_id, dev) in sorted_devices.iter() {
                         let total = dev.total_req;
                         let avg = dev.total_q.div_f32(dev.total_req as f32);
                         let max = dev.max_q;
@@ -180,18 +180,20 @@ impl ResultCollector {
                             as f32
                             / 100f32;
                         self.devices.write_fmt(format_args!(
-                            "{id},{total},{},{},{idle}\n",
+                            "{},{total},{},{},{idle}\n",
+                            dev.name,
                             avg.as_nanos(),
                             max.as_nanos(),
                         ))?;
                         println!(
-                            "\t{id}:
+                            "\t{}:
 \t\tTotal requests: {total}
 \t\tAverage latency: {}
 \t\tMaximum latency: {}
 \t\tFree: {}
 \t\tSize: {total_size}
 \t\tIdle time: {idle}%",
+                            dev.name,
                             avg.human_duration(),
                             max.human_duration(),
                             free_blocks,

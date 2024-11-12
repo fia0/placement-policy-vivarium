@@ -66,6 +66,7 @@ impl Device {
 }
 
 pub struct DeviceState {
+    pub name: String,
     pub kind: Device,
     // Number of blocks currently used.
     pub free: usize,
