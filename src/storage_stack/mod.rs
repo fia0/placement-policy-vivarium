@@ -24,14 +24,14 @@ pub struct StorageStack<S> {
     pub blocks_on_hold: HashMap<Block, SystemTime>,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum StorageMsg {
     Init(Access),
     Finish(Access),
     Process(Step),
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum Step {
     MoveInit(Block, DiskId),
     MoveReadFinished(Block, DiskId),
@@ -61,26 +61,22 @@ impl<S> StorageStack<S> {
         now: SystemTime,
     ) -> Result<Box<dyn Iterator<Item = (SystemTime, Event)>>, StorageError> {
         match msg {
-            StorageMsg::Init(access) => {
+            StorageMsg::Init(ref access) => {
                 // Postpone accesses to blocks which currently are being moved
                 if let Some(time) = self.blocks_on_hold.get(access.block()) {
                     return Ok(Box::new(
-                        [(time.clone(), Event::Storage(StorageMsg::Init(access)))].into_iter(),
+                        [(
+                            time.clone(),
+                            Event::Storage(StorageMsg::Init(access.clone())),
+                        )]
+                        .into_iter(),
                     ));
                 }
                 // Otherwise proceed
-                if let Some(then) = self.queue_access(&access, now, None, None)? {
-                    Ok(Box::new(
-                        [(then.0, Event::Storage(StorageMsg::Finish(access)))]
-                            .into_iter()
-                            .chain(then.1),
-                    ))
-                } else {
-                    Ok(Box::new([].into_iter()))
-                }
+                self.queue_access(&access, now, None, msg.clone())
             }
             StorageMsg::Finish(access) => {
-                let new_events = self.finish_access(&access, now)?;
+                self.finish_access(&access, now);
                 Ok(Box::new(
                     [(
                         now,
@@ -89,68 +85,35 @@ impl<S> StorageStack<S> {
                             Access::Write(b) => crate::placement::PlacementMsg::Written(b),
                         }),
                     )]
-                    .into_iter()
-                    .chain(new_events),
+                    .into_iter(),
                 ))
             }
-            StorageMsg::Process(step) => match step {
+            StorageMsg::Process(ref step) => match step {
                 Step::MoveReadFinished(block, to_disk) => {
-                    let new_events = self.finish_access(&Access::Read(block), now)?;
-                    *self.blocks.get_mut(&block).unwrap() = to_disk;
-                    if let Some(then) =
-                        self.queue_access(&Access::Write(block), now, None, Some(to_disk))?
-                    {
-                        self.blocks_on_hold.insert(block, then.0);
-                        return Ok(Box::new(
-                            [(
-                                then.0,
-                                Event::Storage(StorageMsg::Process(Step::MoveWriteFinished(block))),
-                            )]
-                            .into_iter()
-                            .chain(new_events),
-                        ));
-                    }
-
-                    Ok(Box::new([].into_iter()))
+                    self.finish_access(&Access::Read(*block), now);
+                    *self.blocks.get_mut(&block).unwrap() = *to_disk;
+                    self.queue_access(&Access::Write(*block), now, Some(*to_disk), msg.clone())
                 }
                 Step::MoveInit(block, to_disk) => {
                     if self.blocks_on_hold.contains_key(&block) {
                         return Err(StorageError::BlockIsBusy {
-                            block,
-                            msg: StorageMsg::Process(Step::MoveInit(block, to_disk)),
+                            block: *block,
+                            msg: StorageMsg::Process(Step::MoveInit(*block, *to_disk)),
                         });
                     }
 
-                    if let Some(then) =
-                        self.queue_access(&Access::Read(block), now, None, Some(to_disk))?
-                    {
-                        self.blocks_on_hold.insert(block, then.0);
-                        return Ok(Box::new(
-                            [(
-                                then.0,
-                                Event::Storage(StorageMsg::Process(Step::MoveReadFinished(
-                                    block, to_disk,
-                                ))),
-                            )]
-                            .into_iter(),
-                        ));
-                    }
-                    Ok(Box::new([].into_iter()))
+                    self.queue_access(&Access::Read(*block), now, Some(*to_disk), msg.clone())
                 }
                 Step::MoveWriteFinished(block) => {
-                    self.blocks_on_hold.remove(&block);
-                    let new_events = self.finish_access(&Access::Write(block), now)?;
-                    Ok(new_events)
+                    self.blocks_on_hold.remove(block);
+                    self.finish_access(&Access::Write(*block), now);
+                    Ok(Box::new([].into_iter()))
                 }
             },
         }
     }
 
-    fn finish_access(
-        &mut self,
-        access: &Access,
-        now: SystemTime,
-    ) -> Result<Box<dyn Iterator<Item = (SystemTime, Event)>>, StorageError> {
+    fn finish_access(&mut self, access: &Access, now: SystemTime) -> () {
         let dev = self
             .devices
             .get_mut(self.blocks.get(access.block()).unwrap())
@@ -158,64 +121,64 @@ impl<S> StorageStack<S> {
 
         // One access finished refill if possible.
         dev.current_queue_len -= 1;
+        assert!(dev.current_queue_len < dev.max_queue_len);
 
-        let tmp: Option<Box<dyn Iterator<Item = (SystemTime, Event)>>> = dev
-            .submission_queue
-            .pop_front()
-            .map::<Box<dyn Iterator<Item = (SystemTime, Event)>>, _>(|a| {
-                let (then, evs) = self
-                    .queue_access(&a.1, now, Some(a.0), a.2)
-                    .unwrap()
-                    .unwrap();
+        // let tmp: Option<Box<dyn Iterator<Item = (SystemTime, Event)>>> = dev
+        //     .submission_queue
+        //     .pop_front()
+        //     .map::<Box<dyn Iterator<Item = (SystemTime, Event)>>, _>(|a| {
+        //         let (then, evs) = self
+        //             .queue_access(&a.1, now, Some(a.0), a.2)
+        //             .unwrap()
+        //             .unwrap();
 
-                if let Some(other_disk) = a.2 {
-                    // Operation is part of migration
-                    if a.1.is_read() {
-                        return Box::new(
-                            [(
-                                then,
-                                Event::Storage(StorageMsg::Process(Step::MoveReadFinished(
-                                    *a.1.block(),
-                                    other_disk,
-                                ))),
-                            )]
-                            .into_iter(),
-                        );
-                    } else {
-                        Box::new(
-                            [(
-                                then,
-                                Event::Storage(StorageMsg::Process(Step::MoveWriteFinished(
-                                    *a.1.block(),
-                                ))),
-                            )]
-                            .into_iter(),
-                        )
-                    }
-                } else {
-                    Box::new(
-                        [(then, Event::Storage(StorageMsg::Finish(a.1)))]
-                            .into_iter()
-                            .chain(evs),
-                    )
-                }
-            });
+        //         if let Some(other_disk) = a.2 {
+        //             // Operation is part of migration
+        //             if a.1.is_read() {
+        //                 return Box::new(
+        //                     [(
+        //                         then,
+        //                         Event::Storage(StorageMsg::Process(Step::MoveReadFinished(
+        //                             *a.1.block(),
+        //                             other_disk,
+        //                         ))),
+        //                     )]
+        //                     .into_iter(),
+        //                 );
+        //             } else {
+        //                 Box::new(
+        //                     [(
+        //                         then,
+        //                         Event::Storage(StorageMsg::Process(Step::MoveWriteFinished(
+        //                             *a.1.block(),
+        //                         ))),
+        //                     )]
+        //                     .into_iter(),
+        //                 )
+        //             }
+        //         } else {
+        //             Box::new(
+        //                 [(then, Event::Storage(StorageMsg::Finish(a.1)))]
+        //                     .into_iter()
+        //                     .chain(evs),
+        //             )
+        //         }
+        //     });
 
-        if let Some(it) = tmp {
-            Ok(it)
-        } else {
-            Ok(Box::new([].into_iter()))
-        }
+        // if let Some(it) = tmp {
+        //     Ok(it)
+        // } else {
+        //     Ok(Box::new([].into_iter()))
+        // }
     }
 
     fn queue_access(
         &mut self,
         access: &Access,
         now: SystemTime,
-        originally_queued_at: Option<SystemTime>,
         is_part_of_migration: Option<DiskId>,
-    ) -> Result<Option<(SystemTime, Box<dyn Iterator<Item = (SystemTime, Event)>>)>, StorageError>
-    {
+        msg: StorageMsg,
+    ) -> Result<Box<dyn Iterator<Item = (SystemTime, Event)>>, StorageError> {
         let dev = self
             .blocks
             .get(access.block())
@@ -249,32 +212,45 @@ impl<S> StorageStack<S> {
             }
             dev_stats.reserved_until = until;
             dev_stats.current_queue_len += 1;
-            dev_stats.max_q = dev_stats.max_q.max(
-                until
-                    .duration_since(originally_queued_at.unwrap_or(now))
-                    .unwrap(),
-            );
-            dev_stats.total_q += until
-                .duration_since(originally_queued_at.unwrap_or(now))
-                .unwrap();
+            dev_stats.max_q = dev_stats.max_q.max(until.duration_since(now).unwrap());
+            dev_stats.total_q += until.duration_since(now).unwrap();
             dev_stats.total_req += 1;
 
-            Ok(Some(match access {
-                Access::Read(b) => (
-                    until,
-                    Box::new([(until, Event::Cache(CacheMsg::ReadFinished(*b)))].into_iter()),
+            Ok(match (access, is_part_of_migration) {
+                (Access::Read(b), None) => Box::new(
+                    [
+                        (until, Event::Storage(StorageMsg::Finish(access.clone()))),
+                        (until, Event::Cache(CacheMsg::ReadFinished(*b))),
+                    ]
+                    .into_iter(),
                 ),
-                Access::Write(b) => (
-                    until,
-                    Box::new([(until, Event::Cache(CacheMsg::WriteFinished(*b)))].into_iter()),
+                (Access::Write(b), None) => Box::new(
+                    [
+                        (until, Event::Storage(StorageMsg::Finish(access.clone()))),
+                        (until, Event::Cache(CacheMsg::WriteFinished(*b))),
+                    ]
+                    .into_iter(),
                 ),
-            }))
+                (Access::Read(b), Some(to_disk)) => Box::new(
+                    [(
+                        until,
+                        Event::Storage(StorageMsg::Process(Step::MoveReadFinished(*b, to_disk))),
+                    )]
+                    .into_iter(),
+                ),
+                (Access::Write(b), Some(to_disk)) => Box::new(
+                    [(
+                        until,
+                        Event::Storage(StorageMsg::Process(Step::MoveWriteFinished(*b))),
+                    )]
+                    .into_iter(),
+                ),
+            })
         } else {
             // Enqueue the access for later revision into the stack
-            dev_stats
-                .submission_queue
-                .push_back((now, access.clone(), is_part_of_migration));
-            Ok(None)
+            Ok(Box::new(
+                [(dev_stats.reserved_until, Event::Storage(msg))].into_iter(),
+            ))
         }
     }
 
