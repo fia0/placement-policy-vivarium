@@ -135,6 +135,9 @@ impl PlacementPolicy for FrequencyPolicy {
         // Take note, that costs are simplified and might diff between read/write.
         let mut msgs = Vec::new();
         let mut movements = Vec::new();
+
+        let mut blocks_moved: Vec<(DiskId, Vec<(Block, u64)>)> = Vec::new();
+
         for (disk_a, disk_idle) in least_idling_disks.iter() {
             for disk_b in least_idling_disks.iter().rev().filter(|s| s.1 > *disk_idle) {
                 let mut new_blocks_a = Vec::new();
@@ -143,12 +146,26 @@ impl PlacementPolicy for FrequencyPolicy {
                 // FIXME: These operations should be replaced with hypotheticals for actual runs.
                 let state_a = devices.get_mut(disk_a).unwrap();
                 let cost_a = state_a.kind.sample(&DeviceAccessParams::read());
+                let name_a = state_a.name.clone();
                 let state_b = devices.get_mut(&disk_b.0).unwrap();
                 let cost_b = state_b.kind.sample(&DeviceAccessParams::write());
+                let name_b = state_b.name.clone();
 
                 for _ in 0..self.reactiveness {
-                    let (_, a_block_freq) = self.blocks.get(disk_a).unwrap().peek_max().unwrap();
-                    let (_, b_block_freq) = self.blocks.get(&disk_b.0).unwrap().peek_min().unwrap();
+                    let maybe_block = self.blocks.get(disk_a).unwrap().peek_max();
+                    if maybe_block.is_none() {
+                        continue;
+                    }
+                    let (_, a_block_freq) = maybe_block.unwrap();
+                    let (_, b_block_freq) = if let Some(min) = self
+                        .blocks
+                        .get(&disk_b.0)
+                        .and_then(|blocks| blocks.peek_min())
+                    {
+                        min
+                    } else {
+                        continue;
+                    };
 
                     let state = devices.get_mut(&disk_b.0).unwrap();
                     if state.free > 0
@@ -209,24 +226,33 @@ impl PlacementPolicy for FrequencyPolicy {
                         }
                     }
                 }
-                let queue_a = self.blocks.get_mut(disk_a).unwrap();
-                for b in new_blocks_a.iter() {
-                    queue_a.push(b.0, b.1);
-                }
+                // let queue_a = self.blocks.get_mut(disk_a).unwrap();
+                // for b in new_blocks_a.iter() {
+                //     queue_a.push(b.0, b.1);
+                // }
                 movements.push(MovementInfo {
-                    from: disk_b.0.clone(),
-                    to: disk_a.clone(),
+                    from: name_b.clone(),
+                    to: name_a.clone(),
                     size: new_blocks_a.len(),
                 });
-                let queue_b = self.blocks.get_mut(&disk_b.0).unwrap();
-                for b in new_blocks_b.iter() {
-                    queue_b.push(b.0, b.1);
-                }
+                blocks_moved.push((disk_a.clone(), new_blocks_a));
+                // let queue_b = self.blocks.get_mut(&disk_b.0).unwrap();
+                // for b in new_blocks_b.iter() {
+                //     queue_b.push(b.0, b.1);
+                // }
                 movements.push(MovementInfo {
-                    from: disk_a.clone(),
-                    to: disk_b.0.clone(),
+                    from: name_a,
+                    to: name_b,
                     size: new_blocks_b.len(),
                 });
+                blocks_moved.push((disk_b.0, new_blocks_b));
+            }
+        }
+
+        for (disk_id, new_blocks) in blocks_moved.into_iter() {
+            let queue = self.blocks.get_mut(&disk_id).unwrap();
+            for b in new_blocks.into_iter() {
+                queue.push(b.0, b.1);
             }
         }
 

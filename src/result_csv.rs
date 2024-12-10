@@ -38,8 +38,8 @@ pub enum ResMsg {
 }
 
 pub struct MovementInfo {
-    pub from: DiskId,
-    pub to: DiskId,
+    pub from: String,
+    pub to: String,
     pub size: usize,
 }
 
@@ -172,7 +172,7 @@ impl ResultCollector {
                     sorted_devices.sort_by(|x, y| x.0 .0.cmp(&y.0 .0));
                     for (_id, dev) in sorted_devices.iter() {
                         let total = dev.total_req;
-                        let avg = dev.total_q.div_f32(dev.total_req as f32);
+                        let avg = dev.total_q.div_f32(total.clamp(1, usize::MAX) as f32);
                         let max = dev.max_q;
                         let free_blocks = dev.free;
                         let total_size = dev.total;

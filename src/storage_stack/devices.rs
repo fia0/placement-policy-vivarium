@@ -9,6 +9,8 @@ use crate::{Access, Block, SimError};
 use rand::prelude::Distribution;
 use serde::{Deserialize, Serialize};
 
+use super::DiskId;
+
 /// This file contains a definition of available storage devices.
 
 pub const BLOCK_SIZE_IN_MB: usize = 4;
@@ -73,7 +75,7 @@ pub struct DeviceState {
     // Absolute number of blocks which can be stored.
     pub total: usize,
     pub reserved_until: SystemTime,
-    pub submission_queue: VecDeque<(SystemTime, Access)>,
+    pub submission_queue: VecDeque<(SystemTime, Access, Option<DiskId>)>,
     pub max_queue_len: usize,
     pub current_queue_len: usize,
     // Metrics
