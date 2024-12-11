@@ -73,7 +73,7 @@ impl<S> StorageStack<S> {
                     ));
                 }
                 // Otherwise proceed
-                self.queue_access(&access, now, None, msg.clone())
+                self.queue_access(&access, now, None)
             }
             StorageMsg::Finish(access) => {
                 self.finish_access(&access, now);
@@ -92,7 +92,7 @@ impl<S> StorageStack<S> {
                 Step::MoveReadFinished(block, to_disk) => {
                     self.finish_access(&Access::Read(*block), now);
                     *self.blocks.get_mut(&block).unwrap() = *to_disk;
-                    self.queue_access(&Access::Write(*block), now, Some(*to_disk), msg.clone())
+                    self.queue_access(&Access::Write(*block), now, Some(*to_disk))
                 }
                 Step::MoveInit(block, to_disk) => {
                     if self.blocks_on_hold.contains_key(&block) {
@@ -101,7 +101,12 @@ impl<S> StorageStack<S> {
                             msg: StorageMsg::Process(Step::MoveInit(*block, *to_disk)),
                         });
                     }
-                    self.queue_access(&Access::Read(*block), now, Some(*to_disk), msg.clone())
+                    // if let Some(time) = self.blocks_on_hold.get(block) {
+                    //     return Ok(Box::new(
+                    //         [(time.clone(), Event::Storage(msg.clone()))].into_iter(),
+                    //     ));
+                    // }
+                    self.queue_access(&Access::Read(*block), now, Some(*to_disk))
                 }
                 Step::MoveWriteFinished(block) => {
                     self.blocks_on_hold.remove(block);
@@ -117,58 +122,8 @@ impl<S> StorageStack<S> {
             .devices
             .get_mut(self.blocks.get(access.block()).unwrap())
             .unwrap();
-
-        // One access finished refill if possible.
         assert!(dev.current_queue_len > 0);
         dev.current_queue_len -= 1;
-
-        // let tmp: Option<Box<dyn Iterator<Item = (SystemTime, Event)>>> = dev
-        //     .submission_queue
-        //     .pop_front()
-        //     .map::<Box<dyn Iterator<Item = (SystemTime, Event)>>, _>(|a| {
-        //         let (then, evs) = self
-        //             .queue_access(&a.1, now, Some(a.0), a.2)
-        //             .unwrap()
-        //             .unwrap();
-
-        //         if let Some(other_disk) = a.2 {
-        //             // Operation is part of migration
-        //             if a.1.is_read() {
-        //                 return Box::new(
-        //                     [(
-        //                         then,
-        //                         Event::Storage(StorageMsg::Process(Step::MoveReadFinished(
-        //                             *a.1.block(),
-        //                             other_disk,
-        //                         ))),
-        //                     )]
-        //                     .into_iter(),
-        //                 );
-        //             } else {
-        //                 Box::new(
-        //                     [(
-        //                         then,
-        //                         Event::Storage(StorageMsg::Process(Step::MoveWriteFinished(
-        //                             *a.1.block(),
-        //                         ))),
-        //                     )]
-        //                     .into_iter(),
-        //                 )
-        //             }
-        //         } else {
-        //             Box::new(
-        //                 [(then, Event::Storage(StorageMsg::Finish(a.1)))]
-        //                     .into_iter()
-        //                     .chain(evs),
-        //             )
-        //         }
-        //     });
-
-        // if let Some(it) = tmp {
-        //     Ok(it)
-        // } else {
-        //     Ok(Box::new([].into_iter()))
-        // }
     }
 
     fn queue_access(
@@ -176,7 +131,6 @@ impl<S> StorageStack<S> {
         access: &Access,
         mut now: SystemTime,
         is_part_of_migration: Option<DiskId>,
-        msg: StorageMsg,
     ) -> Result<Box<dyn Iterator<Item = (SystemTime, Event)>>, StorageError> {
         let dev = self
             .blocks
