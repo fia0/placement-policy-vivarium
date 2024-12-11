@@ -169,7 +169,7 @@ impl ResultCollector {
                 ResMsg::Device { map, total_runtime } => {
                     println!("Device stats:");
                     let mut sorted_devices = map.iter().collect::<Vec<(&DiskId, &DeviceState)>>();
-                    sorted_devices.sort_by(|x, y| x.0 .0.cmp(&y.0 .0));
+                    sorted_devices.sort_by(|x, y| x.1.name.cmp(&y.1.name));
                     for (_id, dev) in sorted_devices.iter() {
                         let total = dev.total_req;
                         let avg = dev.total_q.div_f32(total.clamp(1, usize::MAX) as f32);

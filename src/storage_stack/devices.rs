@@ -75,6 +75,8 @@ pub struct DeviceState {
     // Absolute number of blocks which can be stored.
     pub total: usize,
     pub reserved_until: SystemTime,
+    // if queue is full store next possible enqueue point
+    pub can_requeue_at: SystemTime,
     // pub submission_queue: VecDeque<(SystemTime, Access, Option<DiskId>)>,
     pub max_queue_len: usize,
     pub current_queue_len: usize,

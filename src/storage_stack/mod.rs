@@ -101,7 +101,6 @@ impl<S> StorageStack<S> {
                             msg: StorageMsg::Process(Step::MoveInit(*block, *to_disk)),
                         });
                     }
-
                     self.queue_access(&Access::Read(*block), now, Some(*to_disk), msg.clone())
                 }
                 Step::MoveWriteFinished(block) => {
@@ -120,7 +119,8 @@ impl<S> StorageStack<S> {
             .unwrap();
 
         // One access finished refill if possible.
-        dev.current_queue_len = dev.current_queue_len.saturating_sub(1);
+        assert!(dev.current_queue_len > 0);
+        dev.current_queue_len -= 1;
 
         // let tmp: Option<Box<dyn Iterator<Item = (SystemTime, Event)>>> = dev
         //     .submission_queue
@@ -174,7 +174,7 @@ impl<S> StorageStack<S> {
     fn queue_access(
         &mut self,
         access: &Access,
-        now: SystemTime,
+        mut now: SystemTime,
         is_part_of_migration: Option<DiskId>,
         msg: StorageMsg,
     ) -> Result<Box<dyn Iterator<Item = (SystemTime, Event)>>, StorageError> {
@@ -189,68 +189,63 @@ impl<S> StorageStack<S> {
             .get_mut(dev)
             .ok_or(StorageError::InvalidDevice { id: dev.clone() })?;
 
-        // How to queue requests:
-        //
-        // 1. If queue is not full:
-        //     - sample
-        //     - enqueue
-        //     - update reserved_until to minimum of finished timestamp and current value
-        // 2. If queue is full:
-        //     -
+        now = now.max(dev_stats.can_requeue_at);
 
-        if dev_stats.current_queue_len < dev_stats.max_queue_len {
-            // Enqueue and immediately submit request
-            let until = now
-                + match access {
-                    Access::Read(_) => dev_stats.kind.sample(&DeviceAccessParams::read()),
-                    Access::Write(_) => dev_stats.kind.sample(&DeviceAccessParams::write()),
-                };
-            // If nothing was submitted the device was idling
-            if dev_stats.reserved_until < now {
-                dev_stats.idle_time += now.duration_since(dev_stats.reserved_until).unwrap();
-            }
-            dev_stats.reserved_until = until;
-            dev_stats.current_queue_len += 1;
-            dev_stats.max_q = dev_stats.max_q.max(until.duration_since(now).unwrap());
-            dev_stats.total_q += until.duration_since(now).unwrap();
-            dev_stats.total_req += 1;
+        // Enqueue and immediately submit request
+        let until = now
+            + match access {
+                Access::Read(_) => dev_stats.kind.sample(&DeviceAccessParams::read()),
+                Access::Write(_) => dev_stats.kind.sample(&DeviceAccessParams::write()),
+            };
+        // If nothing was submitted the device was idling
+        if dev_stats.reserved_until < now {
+            dev_stats.idle_time += now.duration_since(dev_stats.reserved_until).unwrap();
+        }
+        dev_stats.reserved_until = dev_stats.reserved_until.max(until);
+        dev_stats.current_queue_len += 1;
+        if dev_stats.current_queue_len >= dev_stats.max_queue_len {
+            dev_stats.can_requeue_at = until;
+        }
+        dev_stats.max_q = dev_stats.max_q.max(until.duration_since(now).unwrap());
+        dev_stats.total_q += until.duration_since(now).unwrap();
+        dev_stats.total_req += 1;
 
-            Ok(match (access, is_part_of_migration) {
-                (Access::Read(b), None) => Box::new(
-                    [
-                        (until, Event::Storage(StorageMsg::Finish(access.clone()))),
-                        (until, Event::Cache(CacheMsg::ReadFinished(*b))),
-                    ]
-                    .into_iter(),
-                ),
-                (Access::Write(b), None) => Box::new(
-                    [
-                        (until, Event::Storage(StorageMsg::Finish(access.clone()))),
-                        (until, Event::Cache(CacheMsg::WriteFinished(*b))),
-                    ]
-                    .into_iter(),
-                ),
-                (Access::Read(b), Some(to_disk)) => Box::new(
+        Ok(match (access, is_part_of_migration) {
+            (Access::Read(b), None) => Box::new(
+                [
+                    (until, Event::Storage(StorageMsg::Finish(access.clone()))),
+                    (until, Event::Cache(CacheMsg::ReadFinished(*b))),
+                ]
+                .into_iter(),
+            ),
+            (Access::Write(b), None) => Box::new(
+                [
+                    (until, Event::Storage(StorageMsg::Finish(access.clone()))),
+                    (until, Event::Cache(CacheMsg::WriteFinished(*b))),
+                ]
+                .into_iter(),
+            ),
+            (Access::Read(b), Some(to_disk)) => {
+                self.blocks_on_hold.insert(*b, until);
+                Box::new(
                     [(
                         until,
                         Event::Storage(StorageMsg::Process(Step::MoveReadFinished(*b, to_disk))),
                     )]
                     .into_iter(),
-                ),
-                (Access::Write(b), Some(to_disk)) => Box::new(
+                )
+            }
+            (Access::Write(b), Some(to_disk)) => {
+                self.blocks_on_hold.insert(*b, until);
+                Box::new(
                     [(
                         until,
                         Event::Storage(StorageMsg::Process(Step::MoveWriteFinished(*b))),
                     )]
                     .into_iter(),
-                ),
-            })
-        } else {
-            // Enqueue the access for later revision into the stack
-            Ok(Box::new(
-                [(dev_stats.reserved_until, Event::Storage(msg))].into_iter(),
-            ))
-        }
+                )
+            }
+        })
     }
 
     pub fn insert(&mut self, block: Block, device: DiskId) -> Option<Block> {
