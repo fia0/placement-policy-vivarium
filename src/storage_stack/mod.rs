@@ -120,8 +120,7 @@ impl<S> StorageStack<S> {
             .unwrap();
 
         // One access finished refill if possible.
-        dev.current_queue_len -= 1;
-        assert!(dev.current_queue_len < dev.max_queue_len);
+        dev.current_queue_len = dev.current_queue_len.saturating_sub(1);
 
         // let tmp: Option<Box<dyn Iterator<Item = (SystemTime, Event)>>> = dev
         //     .submission_queue
@@ -207,7 +206,7 @@ impl<S> StorageStack<S> {
                     Access::Write(_) => dev_stats.kind.sample(&DeviceAccessParams::write()),
                 };
             // If nothing was submitted the device was idling
-            if dev_stats.current_queue_len == 0 {
+            if dev_stats.reserved_until < now {
                 dev_stats.idle_time += now.duration_since(dev_stats.reserved_until).unwrap();
             }
             dev_stats.reserved_until = until;

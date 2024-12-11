@@ -289,8 +289,10 @@ fn faux_main() -> Result<(), SimError> {
             }
             Ok(())
         }
-        Commands::Sim { config } => {
-            let mut file = std::fs::OpenOptions::new().read(true).open(config)?;
+        Commands::Sim {
+            config: config_path,
+        } => {
+            let mut file = std::fs::OpenOptions::new().read(true).open(&config_path)?;
             let mut content = String::new();
             file.read_to_string(&mut content)?;
             let config: config::Config = toml::from_str(&content)?;
@@ -318,6 +320,7 @@ fn faux_main() -> Result<(), SimError> {
                 cur += 1;
             }
             std::fs::create_dir_all(&results).unwrap();
+            std::fs::copy(config_path, results.join("config.toml")).unwrap();
 
             let sim: PolicySimulator<()> = PolicySimulator {
                 stack: StorageStack {
