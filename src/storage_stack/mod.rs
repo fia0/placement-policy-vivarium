@@ -95,17 +95,17 @@ impl<S> StorageStack<S> {
                     self.queue_access(&Access::Write(*block), now, Some(*to_disk))
                 }
                 Step::MoveInit(block, to_disk) => {
-                    if self.blocks_on_hold.contains_key(&block) {
-                        return Err(StorageError::BlockIsBusy {
-                            block: *block,
-                            msg: StorageMsg::Process(Step::MoveInit(*block, *to_disk)),
-                        });
-                    }
-                    // if let Some(time) = self.blocks_on_hold.get(block) {
-                    //     return Ok(Box::new(
-                    //         [(time.clone(), Event::Storage(msg.clone()))].into_iter(),
-                    //     ));
+                    // if self.blocks_on_hold.contains_key(&block) {
+                    //     return Err(StorageError::BlockIsBusy {
+                    //         block: *block,
+                    //         msg: StorageMsg::Process(Step::MoveInit(*block, *to_disk)),
+                    //     });
                     // }
+                    if let Some(time) = self.blocks_on_hold.get(block) {
+                        return Ok(Box::new(
+                            [(time.clone(), Event::Storage(msg.clone()))].into_iter(),
+                        ));
+                    }
                     self.queue_access(&Access::Read(*block), now, Some(*to_disk))
                 }
                 Step::MoveWriteFinished(block) => {
@@ -143,6 +143,7 @@ impl<S> StorageStack<S> {
             .get_mut(dev)
             .ok_or(StorageError::InvalidDevice { id: dev.clone() })?;
 
+        let origin = now;
         now = now.max(dev_stats.can_requeue_at);
 
         // Enqueue and immediately submit request
@@ -160,8 +161,12 @@ impl<S> StorageStack<S> {
         if dev_stats.current_queue_len >= dev_stats.max_queue_len {
             dev_stats.can_requeue_at = until;
         }
-        dev_stats.max_q = dev_stats.max_q.max(until.duration_since(now).unwrap());
-        dev_stats.total_q += until.duration_since(now).unwrap();
+        // NOTE: Use for passed time since original queue attempt
+        dev_stats.max_q = dev_stats.max_q.max(until.duration_since(origin).unwrap());
+        dev_stats.total_q += until.duration_since(origin).unwrap();
+        // NOTE: Use for *only* IO duration excluding blocking queue.
+        // dev_stats.max_q = dev_stats.max_q.max(until.duration_since(now).unwrap());
+        // dev_stats.total_q += until.duration_since(now).unwrap();
         dev_stats.total_req += 1;
 
         Ok(match (access, is_part_of_migration) {
