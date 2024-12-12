@@ -7,64 +7,52 @@ path = "results"
 # 1.0 - Only read
 rw = 1.0
 # Total number of blocks which are present in the storage stack.
-size = 1_512
+size = 40_000
 
 # How many reqs are submitted to the stack per batch.
-reqs_per_batch = 2560
-iteration = 1000
-interval = "0s"
+reqs_per_batch = 3
+iteration = 10_000_000
+interval = "10ms"
 
-#[app.Batch.pattern.Zipf]
-## Theta for Zipfian Distribution
-#theta = 0.99
-#seed = 54321
-
-[app.Batch.pattern.Uniform]
+[app.Batch.pattern.Zipf]
+# Theta for Zipfian Distribution
+theta = 0.99
 seed = 54321
+
+#[app.Batch.pattern.Uniform]
+#seed = 54321
 
 [cache]
 algorithm = "Noop"
-capacity = 1
+capacity = 0
 device = "bress-vol1"
 
-#[placement.Frequency]
-#interval = "30min"
-#reactiveness = 100
-#decay = 0.05
+[placement.Frequency]
+interval = "30min"
+reactiveness = 100
+decay = 0.05
 
-[placement.Noop]
-
+#[placement.Noop]
 
 # Which devices will be used.
 [devices]
 
-#[devices.optane_pmem]
-#kind = "Intel_Optane_PMem_100"
-## Total size of device in number of blocks.
-#capacity = 20_000
-
-# [devices.optane_ssd]
-# kind = "Intel_Optane_SSD_DC_P4800X"
-# capacity = 100_000
-
-# [devices.kioxia_ssd_0]
-# kind = "KIOXIA_CM7"
-# capacity = 100_000
-
-[devices.my-own-hdd]
+[devices.bress-vol1]
 kind = "bress-vol1"
-capacity = 2_000
+capacity = 30_000
 
-# [devices.my-own-hdd1]
-# kind = { Custom = "cluster-old-hdd" }
-# capacity = 999999
-# 
-# 
-# [devices.my-own-hdd2]
-# kind = { Custom = "cluster-old-hdd" }
-# capacity = 999999
+[devices.bress-vol2]
+kind = "bress-vol2"
+capacity = 10_000
 
+[devices.ants-nvme]
+kind = "ants-nvme"
+capacity = 5_000
 
-# [devices.spinny_boy]
-# kind = "Western_Digital_WD5000AAKS"
-# capacity = 123456
+#[devices.ants-hdd]
+#kind = "ants-hdd"
+#capacity = 10_000
+#
+#[devices.ants-ssd]
+#kind = "ants-ssd"
+#capacity = 10_000
